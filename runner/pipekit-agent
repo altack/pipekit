@@ -44,8 +44,11 @@ fi
 log "prompt: $PROMPT_PATH"
 
 # ─── Materialize inputs.json ───────────────────────────────────────────────
-INPUTS="${PIPEKIT_INPUTS:-{}}"
-echo "$INPUTS" > "$WORKSPACE/inputs.json"
+# Don't use `${PIPEKIT_INPUTS:-{}}` — bash parses the inner `}` as the close
+# of parameter expansion and appends a stray `}` to non-empty values.
+INPUTS="${PIPEKIT_INPUTS-}"
+[[ -z "$INPUTS" ]] && INPUTS='{}'
+printf '%s' "$INPUTS" > "$WORKSPACE/inputs.json"
 if ! jq empty "$WORKSPACE/inputs.json" 2>/dev/null; then
   log "ERROR: PIPEKIT_INPUTS is not valid JSON"
   exit 2
