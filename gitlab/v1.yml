@@ -1,0 +1,42 @@
+# Pipekit — GitLab CI include
+# Usage:
+#   include:
+#     - remote: https://altack.com/pipekit/gitlab/v1.yml
+#
+#   my-task:
+#     extends: .pipekit
+#     variables:
+#       PIPEKIT_PROMPT: '@pipekit/hello'
+#       PIPEKIT_INPUTS: '{"name":"CI"}'
+#
+# Set ANTHROPIC_API_KEY as a masked CI/CD variable at the project (or group) level.
+
+.pipekit:
+  image: ghcr.io/altack/pipekit-runner:latest
+  variables:
+    PIPEKIT_WORKSPACE: $CI_PROJECT_DIR/.pipekit
+    PIPEKIT_INPUTS: '{}'
+    PIPEKIT_MODEL: opus
+    PIPEKIT_MAX_TURNS: '200'
+    GIT_STRATEGY: fetch
+  before_script:
+    - mkdir -p "$PIPEKIT_WORKSPACE"
+  script:
+    - pipekit-agent
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - .pipekit/
+    reports:
+      dotenv: .pipekit/result.env
+  after_script:
+    # Surface result.json fields as job-level dotenv so downstream jobs can read them
+    # via "needs: [job: this, artifacts: true]".
+    - |
+      if [ -f "$PIPEKIT_WORKSPACE/result.json" ]; then
+        STATUS=$(jq -r '.status  // "fail"' "$PIPEKIT_WORKSPACE/result.json")
+        SUMMARY=$(jq -r '.summary // ""'    "$PIPEKIT_WORKSPACE/result.json")
+        printf 'PIPEKIT_STATUS=%s\nPIPEKIT_SUMMARY=%s\n' "$STATUS" "$SUMMARY" \
+          > "$PIPEKIT_WORKSPACE/result.env"
+      fi

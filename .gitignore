@@ -1,0 +1,14 @@
+.DS_Store
+node_modules/
+dist/
+*.log
+
+# Local pipekit runs (created by pipekit-agent)
+.pipekit/
+**/result.json
+**/agent.jsonl
+**/artifacts/
+
+# Local secrets used during e2e
+.env
+.env.local

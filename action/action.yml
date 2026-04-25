@@ -1,0 +1,132 @@
+name: 'Pipekit'
+description: 'Run a Claude Code agent task in an isolated container; emit structured result.json + artifacts.'
+author: 'altack'
+branding:
+  icon: 'play-circle'
+  color: 'purple'
+
+inputs:
+  prompt:
+    description: 'Built-in (@pipekit/<name>) or path to a prompt .md file inside the repo'
+    required: true
+  task:
+    description: 'JSON inputs for the prompt (default "{}")'
+    required: false
+    default: '{}'
+  pass-when:
+    description: 'Optional jq expression evaluated against result.json. If unset, verdict comes from result.status.'
+    required: false
+    default: ''
+  image:
+    description: 'Pipekit runner image to pull and run'
+    required: false
+    default: 'ghcr.io/altack/pipekit-runner:latest'
+  workspace:
+    description: 'Host directory used as the per-job workspace (created if missing)'
+    required: false
+    default: '${{ github.workspace }}/.pipekit'
+  model:
+    description: 'Claude model (opus | sonnet | haiku, or a full model id)'
+    required: false
+    default: 'opus'
+  max-turns:
+    description: 'Safety cap on agent turns'
+    required: false
+    default: '200'
+  upload-artifact:
+    description: 'If true, upload the workspace as a job artifact'
+    required: false
+    default: 'true'
+  artifact-name:
+    description: 'Name of the uploaded artifact (default: pipekit-<job>)'
+    required: false
+    default: ''
+
+outputs:
+  status:
+    description: 'pass | fail (read from result.json)'
+    value: ${{ steps.run.outputs.status }}
+  summary:
+    description: 'One-line summary from result.json'
+    value: ${{ steps.run.outputs.summary }}
+  workspace:
+    description: 'Path to the workspace dir on the runner'
+    value: ${{ steps.run.outputs.workspace }}
+  result-json:
+    description: 'Path to result.json on the runner'
+    value: ${{ steps.run.outputs.result-json }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        PIPEKIT_PROMPT: ${{ inputs.prompt }}
+        PIPEKIT_INPUTS: ${{ inputs.task }}
+        PIPEKIT_PASS_WHEN: ${{ inputs.pass-when }}
+        PIPEKIT_MODEL: ${{ inputs.model }}
+        PIPEKIT_MAX_TURNS: ${{ inputs.max-turns }}
+        PIPEKIT_IMAGE: ${{ inputs.image }}
+        PIPEKIT_WORKSPACE_HOST: ${{ inputs.workspace }}
+      run: |
+        set -euo pipefail
+
+        if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+          echo "::error::ANTHROPIC_API_KEY is not set in env. Pass it via the step's env: block from a repo/org secret."
+          exit 2
+        fi
+
+        mkdir -p "$PIPEKIT_WORKSPACE_HOST"
+
+        docker pull --quiet "$PIPEKIT_IMAGE"
+
+        set +e
+        docker run --rm \
+          -v "${{ github.workspace }}:/repo" \
+          -v "$PIPEKIT_WORKSPACE_HOST:/work" \
+          -e PIPEKIT_PROMPT \
+          -e PIPEKIT_INPUTS \
+          -e PIPEKIT_PASS_WHEN \
+          -e PIPEKIT_MODEL \
+          -e PIPEKIT_MAX_TURNS \
+          -e ANTHROPIC_API_KEY \
+          "$PIPEKIT_IMAGE"
+        EXIT=$?
+        set -e
+
+        RESULT="$PIPEKIT_WORKSPACE_HOST/result.json"
+        if [[ -f "$RESULT" ]]; then
+          STATUS=$(jq -r '.status  // "fail"' "$RESULT")
+          SUMMARY=$(jq -r '.summary // ""'    "$RESULT")
+        else
+          STATUS=fail
+          SUMMARY="result.json was not produced (exit $EXIT)"
+        fi
+
+        {
+          echo "status=$STATUS"
+          echo "summary=$SUMMARY"
+          echo "workspace=$PIPEKIT_WORKSPACE_HOST"
+          echo "result-json=$RESULT"
+        } >> "$GITHUB_OUTPUT"
+
+        {
+          echo "## Pipekit"
+          echo ""
+          echo "**Status:** \`$STATUS\`"
+          echo ""
+          echo "**Summary:** $SUMMARY"
+          echo ""
+          echo "**Prompt:** \`$PIPEKIT_PROMPT\`"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        exit $EXIT
+
+    - id: upload
+      if: always() && inputs.upload-artifact == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name != '' && inputs.artifact-name || format('pipekit-{0}', github.job) }}
+        path: ${{ steps.run.outputs.workspace }}
+        if-no-files-found: warn

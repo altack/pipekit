@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# pipekit-agent — the contract implementation. See docs/contract.md.
+#
+# Inputs (env):
+#   PIPEKIT_PROMPT       @pipekit/<name> or path to a .md system prompt
+#   PIPEKIT_INPUTS       JSON blob (default "{}"); written to inputs.json
+#   PIPEKIT_PASS_WHEN    optional jq expression evaluated against result.json
+#   PIPEKIT_WORKSPACE    scratch dir (default /work)
+#   PIPEKIT_MODEL        opus | sonnet | haiku (default opus)
+#   PIPEKIT_MAX_TURNS    safety cap (default 200)
+#   ANTHROPIC_API_KEY    required
+#
+# Outputs (under $PIPEKIT_WORKSPACE):
+#   inputs.json     mirror of $PIPEKIT_INPUTS
+#   result.json     the verdict (status, summary, findings, outputs)
+#   agent.jsonl     raw stream-json from claude
+#   artifacts/      anything the prompt produced
+#
+# Exit codes:
+#   0  pass        (status="pass" or pass_when truthy)
+#   1  agent fail  (status="fail" or pass_when falsy)
+#   2  infra fail  (no result.json, prompt missing, invalid inputs, agent crashed)
+
+set -euo pipefail
+
+log() { echo "[pipekit] $*" >&2; }
+
+: "${PIPEKIT_PROMPT:?required: built-in @pipekit/<name> or path to a prompt file}"
+: "${ANTHROPIC_API_KEY:?required}"
+
+WORKSPACE="${PIPEKIT_WORKSPACE:-/work}"
+mkdir -p "$WORKSPACE/artifacts"
+
+# ─── Resolve prompt ────────────────────────────────────────────────────────
+case "$PIPEKIT_PROMPT" in
+  @pipekit/*) PROMPT_PATH="/pipekit/prompts/${PIPEKIT_PROMPT#@pipekit/}.md" ;;
+  *)          PROMPT_PATH="$PIPEKIT_PROMPT" ;;
+esac
+
+if [[ ! -r "$PROMPT_PATH" ]]; then
+  log "ERROR: prompt not found or unreadable: $PROMPT_PATH"
+  exit 2
+fi
+log "prompt: $PROMPT_PATH"
+
+# ─── Materialize inputs.json ───────────────────────────────────────────────
+INPUTS="${PIPEKIT_INPUTS:-{}}"
+echo "$INPUTS" > "$WORKSPACE/inputs.json"
+if ! jq empty "$WORKSPACE/inputs.json" 2>/dev/null; then
+  log "ERROR: PIPEKIT_INPUTS is not valid JSON"
+  exit 2
+fi
+log "workspace: $WORKSPACE"
+
+cd "$WORKSPACE"
+
+# ─── Launch the agent ──────────────────────────────────────────────────────
+MODEL="${PIPEKIT_MODEL:-opus}"
+MAX_TURNS="${PIPEKIT_MAX_TURNS:-200}"
+log "model: $MODEL  max-turns: $MAX_TURNS"
+
+TASK="Run the pipekit task. Inputs are at ${WORKSPACE}/inputs.json. Write your verdict to ${WORKSPACE}/result.json before exiting. Drop any evidence files under ${WORKSPACE}/artifacts/."
+
+CLAUDE_ARGS=(
+  -p
+  --output-format stream-json
+  --verbose
+  --permission-mode bypassPermissions
+  --dangerously-skip-permissions
+  --tools "Bash,Read,Edit,Write,Glob,Grep,WebFetch"
+  --max-turns "$MAX_TURNS"
+  --append-system-prompt-file "$PROMPT_PATH"
+  --model "$MODEL"
+)
+
+set +e
+claude "${CLAUDE_ARGS[@]}" "$TASK" \
+  | tee "$WORKSPACE/agent.jsonl"
+CLAUDE_EXIT=${PIPESTATUS[0]}
+set -e
+
+# ─── Validate output ───────────────────────────────────────────────────────
+if [[ $CLAUDE_EXIT -ne 0 ]]; then
+  log "agent exited non-zero ($CLAUDE_EXIT)"
+  if [[ ! -f "$WORKSPACE/result.json" ]]; then
+    echo "{\"status\":\"fail\",\"summary\":\"agent exited $CLAUDE_EXIT without writing result.json\"}" \
+      > "$WORKSPACE/result.json"
+  fi
+  exit 2
+fi
+
+if [[ ! -f "$WORKSPACE/result.json" ]]; then
+  log "ERROR: agent did not write result.json"
+  echo '{"status":"fail","summary":"agent did not write result.json"}' > "$WORKSPACE/result.json"
+  exit 2
+fi
+
+if ! jq empty "$WORKSPACE/result.json" 2>/dev/null; then
+  log "ERROR: result.json is not valid JSON"
+  exit 2
+fi
+
+# ─── Compute verdict ───────────────────────────────────────────────────────
+if [[ -n "${PIPEKIT_PASS_WHEN:-}" ]]; then
+  log "evaluating pass-when: $PIPEKIT_PASS_WHEN"
+  if jq -e "$PIPEKIT_PASS_WHEN" "$WORKSPACE/result.json" >/dev/null 2>&1; then
+    log "verdict: pass (pass-when truthy)"
+    exit 0
+  else
+    log "verdict: fail (pass-when falsy)"
+    exit 1
+  fi
+fi
+
+STATUS=$(jq -r '.status // "fail"' "$WORKSPACE/result.json")
+log "verdict: $STATUS (from result.json:.status)"
+[[ "$STATUS" == "pass" ]] && exit 0 || exit 1
