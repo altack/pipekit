@@ -17,6 +17,14 @@ inputs:
     description: 'Optional jq expression evaluated against result.json. If unset, verdict comes from result.status.'
     required: false
     default: ''
+  agent:
+    description: 'Explicit driver name (claude-code | codex | copilot). If unset, walks `preferred` and picks the first available.'
+    required: false
+    default: ''
+  preferred:
+    description: 'Comma-separated ordered fallback list of drivers. First with credentials present wins.'
+    required: false
+    default: 'claude-code'
   image:
     description: 'Pipekit runner image to pull and run'
     required: false
@@ -65,6 +73,8 @@ runs:
         PIPEKIT_PROMPT: ${{ inputs.prompt }}
         PIPEKIT_INPUTS: ${{ inputs.task }}
         PIPEKIT_PASS_WHEN: ${{ inputs.pass-when }}
+        PIPEKIT_AGENT: ${{ inputs.agent }}
+        PIPEKIT_PREFERRED: ${{ inputs.preferred }}
         PIPEKIT_MODEL: ${{ inputs.model }}
         PIPEKIT_MAX_TURNS: ${{ inputs.max-turns }}
         PIPEKIT_IMAGE: ${{ inputs.image }}
@@ -72,8 +82,8 @@ runs:
       run: |
         set -euo pipefail
 
-        if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-          echo "::error::ANTHROPIC_API_KEY is not set in env. Pass it via the step's env: block from a repo/org secret."
+        if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${OPENAI_API_KEY:-}" && -z "${GH_TOKEN:-}" ]]; then
+          echo "::error::No agent credentials in env. Pass at least one of ANTHROPIC_API_KEY, OPENAI_API_KEY, GH_TOKEN via the step's env: block."
           exit 2
         fi
 
@@ -88,9 +98,13 @@ runs:
           -e PIPEKIT_PROMPT \
           -e PIPEKIT_INPUTS \
           -e PIPEKIT_PASS_WHEN \
+          -e PIPEKIT_AGENT \
+          -e PIPEKIT_PREFERRED \
           -e PIPEKIT_MODEL \
           -e PIPEKIT_MAX_TURNS \
           -e ANTHROPIC_API_KEY \
+          -e OPENAI_API_KEY \
+          -e GH_TOKEN \
           "$PIPEKIT_IMAGE"
         EXIT=$?
         set -e

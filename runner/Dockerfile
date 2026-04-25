@@ -51,7 +51,7 @@ RUN mkdir -p /home/node/.ssh \
   && ssh-keyscan github.com gitlab.com >> /home/node/.ssh/known_hosts 2>/dev/null \
   && chmod 644 /home/node/.ssh/known_hosts
 
-RUN mkdir -p /work /pipekit/prompts \
+RUN mkdir -p /work /pipekit/prompts /pipekit/drivers \
   && mkdir -p /home/node/.cache /home/node/.claude /home/node/.local/bin \
   && chown -R node:node /work /pipekit /home/node
 
@@ -59,7 +59,9 @@ RUN npm install -g agent-browser
 
 COPY --chown=node:node runner/pipekit-agent /usr/local/bin/pipekit-agent
 COPY --chown=node:node runner/prompts/      /pipekit/prompts/
-RUN chmod +x /usr/local/bin/pipekit-agent
+COPY --chown=node:node runner/drivers/      /pipekit/drivers/
+RUN chmod +x /usr/local/bin/pipekit-agent \
+  && find /pipekit/drivers -name '*.sh' -exec chmod +x {} +
 
 RUN chown -R node:node /home/node
 

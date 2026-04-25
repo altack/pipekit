@@ -10,9 +10,31 @@ The single contract every prompt — built-in or user-provided — must satisfy.
 | `PIPEKIT_INPUTS` | no | `{}` | JSON blob. Materialized to `$PIPEKIT_WORKSPACE/inputs.json` before the agent starts. The agent reads task-specific params from here. Must be valid JSON. |
 | `PIPEKIT_PASS_WHEN` | no | — | jq expression evaluated against `result.json` at the end of the run. Truthy → exit 0, falsy → exit 1. If unset, exit code derives from `result.json:.status`. |
 | `PIPEKIT_WORKSPACE` | no | `/work` | Per-task scratch directory. The CI integrations bind-mount the host's per-job temp dir here. |
-| `PIPEKIT_MODEL` | no | `opus` | Claude model. Accepts the alias (`opus`/`sonnet`/`haiku`) or a full model id. |
+| `PIPEKIT_AGENT` | no | — | Explicit driver name (`claude-code`, `codex`, `copilot`, …). Bypasses preference resolution. If the named driver is unavailable, exits 2. |
+| `PIPEKIT_PREFERRED` | no | `claude-code` | Comma-separated ordered fallback list. Walks left-to-right and picks the first driver whose `check.sh` passes (CLI installed + credentials present). |
+| `PIPEKIT_MODEL` | no | driver default | Agent-specific model id. Each driver decides its default. |
 | `PIPEKIT_MAX_TURNS` | no | `200` | Safety cap on agent turns. |
-| `ANTHROPIC_API_KEY` | yes | — | Standard Anthropic credential. Read at process start; never written to disk. |
+| `<agent credentials>` | yes (one of) | — | Whichever credentials the chosen driver requires: `ANTHROPIC_API_KEY` (claude-code), `OPENAI_API_KEY` (codex), `GH_TOKEN` (copilot). Read at process start; never written to disk. |
+
+## Agent resolution
+
+```
+if PIPEKIT_AGENT is set:
+    run /pipekit/drivers/$PIPEKIT_AGENT/check.sh
+    if check fails → exit 2 ("agent X is not available")
+    else use $PIPEKIT_AGENT
+else:
+    for each name in PIPEKIT_PREFERRED.split(","):
+        if /pipekit/drivers/$name/check.sh succeeds → use $name, stop
+    if none matched → exit 2 ("no preferred agent available")
+```
+
+A driver is a directory `/pipekit/drivers/<name>/` containing:
+
+- `check.sh` — exits 0 if the driver is usable (CLI on PATH, credentials present), non-zero otherwise.
+- `run.sh` — receives the prompt path as `$1`, drives its agent's loop. Reads `PIPEKIT_INPUTS`, `PIPEKIT_WORKSPACE`, `PIPEKIT_MODEL`, `PIPEKIT_MAX_TURNS` from env. The driver does **not** write `result.json` — the prompt instructs the agent to. Exit code is bubbled up.
+
+Built-in drivers in v0.x: `claude-code` (real), `codex` (stub), `copilot` (stub).
 
 ## Outputs (written by the agent, consumed by the caller)
 

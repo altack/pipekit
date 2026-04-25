@@ -109,4 +109,48 @@ set -e
   || fail "case 3: expected exit 1 (pass-when falsy), got $EXIT3"
 log "case 3 OK"
 
+# ─── Case 4: explicit codex (stub) → exit 2, no LLM call ───────────────
+WORK_CODEX="$WORK_BASE/codex"
+mkdir -p "$WORK_CODEX"
+log "case 4: explicit PIPEKIT_AGENT=codex (stub) → expect exit 2 with no API spend"
+
+set +e
+docker run --rm \
+  -v "$WORK_CODEX:/work" \
+  -e PIPEKIT_PROMPT='@pipekit/hello' \
+  -e PIPEKIT_AGENT='codex' \
+  -e ANTHROPIC_API_KEY \
+  "$IMAGE"
+EXIT4=$?
+set -e
+
+[[ $EXIT4 -eq 2 ]] \
+  || fail "case 4: expected exit 2 (codex stub unavailable), got $EXIT4"
+log "case 4 OK"
+
+# ─── Case 5: preferred fallback (codex,copilot,claude-code) → uses claude-code ──
+WORK_FB="$WORK_BASE/fallback"
+mkdir -p "$WORK_FB"
+log "case 5: PIPEKIT_PREFERRED=codex,copilot,claude-code → falls back to claude-code, expect pass"
+
+set +e
+docker run --rm \
+  -v "$WORK_FB:/work" \
+  -e PIPEKIT_PROMPT='@pipekit/hello' \
+  -e PIPEKIT_INPUTS='{"name":"fallback"}' \
+  -e PIPEKIT_PREFERRED='codex,copilot,claude-code' \
+  -e ANTHROPIC_API_KEY \
+  "$IMAGE"
+EXIT5=$?
+set -e
+
+[[ -f "$WORK_FB/result.json" ]] \
+  || fail "case 5: result.json was not produced"
+[[ $EXIT5 -eq 0 ]] \
+  || fail "case 5: expected exit 0 (fallback to claude-code), got $EXIT5"
+STATUS5=$(jq -r '.status' "$WORK_FB/result.json")
+[[ "$STATUS5" == "pass" ]] \
+  || fail "case 5: expected status=pass, got '$STATUS5'"
+log "case 5 OK"
+
 log "ALL CASES PASSED"

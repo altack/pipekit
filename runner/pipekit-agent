@@ -1,32 +1,42 @@
 #!/usr/bin/env bash
 # pipekit-agent — the contract implementation. See docs/contract.md.
 #
+# Resolves which agent driver to run (claude-code | codex | copilot | …),
+# materializes inputs.json, hands prompt + workspace to the driver, validates
+# result.json, and computes the verdict.
+#
 # Inputs (env):
-#   PIPEKIT_PROMPT       @pipekit/<name> or path to a .md system prompt
+#   PIPEKIT_PROMPT       @pipekit/<name> or path to a .md system prompt   [required]
 #   PIPEKIT_INPUTS       JSON blob (default "{}"); written to inputs.json
 #   PIPEKIT_PASS_WHEN    optional jq expression evaluated against result.json
 #   PIPEKIT_WORKSPACE    scratch dir (default /work)
-#   PIPEKIT_MODEL        opus | sonnet | haiku (default opus)
+#   PIPEKIT_AGENT        explicit driver name (claude-code | codex | copilot | …)
+#                        if unset, walk PIPEKIT_PREFERRED and pick the first available
+#   PIPEKIT_PREFERRED    comma-separated ordered fallback (default "claude-code")
+#   PIPEKIT_MODEL        agent-specific model id (driver decides default)
 #   PIPEKIT_MAX_TURNS    safety cap (default 200)
-#   ANTHROPIC_API_KEY    required
+#   <agent creds>        whichever credentials the chosen driver needs
+#                          claude-code → ANTHROPIC_API_KEY
+#                          codex       → OPENAI_API_KEY
+#                          copilot     → GH_TOKEN / gh auth
 #
 # Outputs (under $PIPEKIT_WORKSPACE):
 #   inputs.json     mirror of $PIPEKIT_INPUTS
 #   result.json     the verdict (status, summary, findings, outputs)
-#   agent.jsonl     raw stream-json from claude
+#   agent.jsonl     raw agent output (driver-specific format)
 #   artifacts/      anything the prompt produced
 #
 # Exit codes:
 #   0  pass        (status="pass" or pass_when truthy)
 #   1  agent fail  (status="fail" or pass_when falsy)
-#   2  infra fail  (no result.json, prompt missing, invalid inputs, agent crashed)
+#   2  infra fail  (no result.json, prompt missing, no driver available, etc.)
 
 set -euo pipefail
 
-log() { echo "[pipekit] $*" >&2; }
+log()  { echo "[pipekit] $*" >&2; }
+fail() { log "ERROR: $*"; exit 2; }
 
 : "${PIPEKIT_PROMPT:?required: built-in @pipekit/<name> or path to a prompt file}"
-: "${ANTHROPIC_API_KEY:?required}"
 
 WORKSPACE="${PIPEKIT_WORKSPACE:-/work}"
 mkdir -p "$WORKSPACE/artifacts"
@@ -36,58 +46,76 @@ case "$PIPEKIT_PROMPT" in
   @pipekit/*) PROMPT_PATH="/pipekit/prompts/${PIPEKIT_PROMPT#@pipekit/}.md" ;;
   *)          PROMPT_PATH="$PIPEKIT_PROMPT" ;;
 esac
-
-if [[ ! -r "$PROMPT_PATH" ]]; then
-  log "ERROR: prompt not found or unreadable: $PROMPT_PATH"
-  exit 2
-fi
+[[ -r "$PROMPT_PATH" ]] || fail "prompt not found or unreadable: $PROMPT_PATH"
 log "prompt: $PROMPT_PATH"
 
 # ─── Materialize inputs.json ───────────────────────────────────────────────
-# Don't use `${PIPEKIT_INPUTS:-{}}` — bash parses the inner `}` as the close
-# of parameter expansion and appends a stray `}` to non-empty values.
 INPUTS="${PIPEKIT_INPUTS-}"
 [[ -z "$INPUTS" ]] && INPUTS='{}'
 printf '%s' "$INPUTS" > "$WORKSPACE/inputs.json"
-if ! jq empty "$WORKSPACE/inputs.json" 2>/dev/null; then
-  log "ERROR: PIPEKIT_INPUTS is not valid JSON"
-  exit 2
-fi
+jq empty "$WORKSPACE/inputs.json" 2>/dev/null \
+  || fail "PIPEKIT_INPUTS is not valid JSON"
 log "workspace: $WORKSPACE"
 
+# ─── Resolve agent driver ──────────────────────────────────────────────────
+DRIVERS_DIR="/pipekit/drivers"
+PREFERRED="${PIPEKIT_PREFERRED:-claude-code}"
+
+agent_check() {
+  # $1 = driver name. Returns 0 if available.
+  local name="$1"
+  local check_sh="$DRIVERS_DIR/$name/check.sh"
+  [[ -x "$check_sh" ]] || return 1
+  "$check_sh" >/dev/null 2>&1
+}
+
+PICK=""
+if [[ -n "${PIPEKIT_AGENT:-}" ]]; then
+  log "agent (explicit): $PIPEKIT_AGENT"
+  if [[ ! -d "$DRIVERS_DIR/$PIPEKIT_AGENT" ]]; then
+    fail "unknown agent: '$PIPEKIT_AGENT' (no driver at $DRIVERS_DIR/$PIPEKIT_AGENT)"
+  fi
+  if ! agent_check "$PIPEKIT_AGENT"; then
+    fail "agent '$PIPEKIT_AGENT' is not available — check.sh failed (missing CLI or credentials)"
+  fi
+  PICK="$PIPEKIT_AGENT"
+else
+  log "agent (preferred): $PREFERRED"
+  IFS=',' read -ra CANDIDATES <<< "$PREFERRED"
+  for candidate in "${CANDIDATES[@]}"; do
+    candidate="$(echo "$candidate" | xargs)"
+    [[ -z "$candidate" ]] && continue
+    if agent_check "$candidate"; then
+      PICK="$candidate"
+      log "agent picked: $PICK"
+      break
+    else
+      log "agent skipped: $candidate (unavailable)"
+    fi
+  done
+  [[ -n "$PICK" ]] \
+    || fail "no preferred agent available — set credentials for one of: $PREFERRED"
+fi
+
+DRIVER="$DRIVERS_DIR/$PICK/run.sh"
+[[ -x "$DRIVER" ]] || fail "driver not executable: $DRIVER"
+
+# ─── Hand off to driver ────────────────────────────────────────────────────
+export PIPEKIT_WORKSPACE="$WORKSPACE"
+export PIPEKIT_AGENT="$PICK"
+
 cd "$WORKSPACE"
-
-# ─── Launch the agent ──────────────────────────────────────────────────────
-MODEL="${PIPEKIT_MODEL:-opus}"
-MAX_TURNS="${PIPEKIT_MAX_TURNS:-200}"
-log "model: $MODEL  max-turns: $MAX_TURNS"
-
-TASK="Run the pipekit task. Inputs are at ${WORKSPACE}/inputs.json. Write your verdict to ${WORKSPACE}/result.json before exiting. Drop any evidence files under ${WORKSPACE}/artifacts/."
-
-CLAUDE_ARGS=(
-  -p
-  --output-format stream-json
-  --verbose
-  --permission-mode bypassPermissions
-  --dangerously-skip-permissions
-  --tools "Bash,Read,Edit,Write,Glob,Grep,WebFetch"
-  --max-turns "$MAX_TURNS"
-  --append-system-prompt-file "$PROMPT_PATH"
-  --model "$MODEL"
-)
-
 set +e
-claude "${CLAUDE_ARGS[@]}" "$TASK" \
-  | tee "$WORKSPACE/agent.jsonl"
-CLAUDE_EXIT=${PIPESTATUS[0]}
+"$DRIVER" "$PROMPT_PATH"
+DRIVER_EXIT=$?
 set -e
 
 # ─── Validate output ───────────────────────────────────────────────────────
-if [[ $CLAUDE_EXIT -ne 0 ]]; then
-  log "agent exited non-zero ($CLAUDE_EXIT)"
+if [[ $DRIVER_EXIT -ne 0 ]]; then
+  log "driver $PICK exited non-zero ($DRIVER_EXIT)"
   if [[ ! -f "$WORKSPACE/result.json" ]]; then
-    echo "{\"status\":\"fail\",\"summary\":\"agent exited $CLAUDE_EXIT without writing result.json\"}" \
-      > "$WORKSPACE/result.json"
+    printf '{"status":"fail","summary":"driver %s exited %d without writing result.json"}' \
+      "$PICK" "$DRIVER_EXIT" > "$WORKSPACE/result.json"
   fi
   exit 2
 fi
@@ -98,10 +126,8 @@ if [[ ! -f "$WORKSPACE/result.json" ]]; then
   exit 2
 fi
 
-if ! jq empty "$WORKSPACE/result.json" 2>/dev/null; then
-  log "ERROR: result.json is not valid JSON"
-  exit 2
-fi
+jq empty "$WORKSPACE/result.json" 2>/dev/null \
+  || fail "result.json is not valid JSON"
 
 # ─── Compute verdict ───────────────────────────────────────────────────────
 if [[ -n "${PIPEKIT_PASS_WHEN:-}" ]]; then

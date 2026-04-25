@@ -16,6 +16,7 @@
   variables:
     PIPEKIT_WORKSPACE: $CI_PROJECT_DIR/.pipekit
     PIPEKIT_INPUTS: '{}'
+    PIPEKIT_PREFERRED: 'claude-code'
     PIPEKIT_MODEL: opus
     PIPEKIT_MAX_TURNS: '200'
     GIT_STRATEGY: fetch
