@@ -13,8 +13,8 @@ inputs:
     description: 'Host path to a directory containing <org>/<name>/recipe.yaml. Required when `recipe` starts with `@`. Bind-mounted at /pipekit/recipes inside the container. (URL-based fetch is planned for v0.2.)'
     required: false
     default: ''
-  task:
-    description: 'JSON inputs for the recipe (default "{}")'
+  inputs:
+    description: 'Runtime parameters for the recipe — a JSON object validated against the recipe`s inputs.schema. The recipe defines the task; this is per-run data the recipe expects (e.g. a URL, a package list).'
     required: false
     default: '{}'
   pass-when:
@@ -76,7 +76,7 @@ runs:
       env:
         PIPEKIT_RECIPE: ${{ inputs.recipe }}
         PIPEKIT_RECIPES_SOURCE: ${{ inputs.recipes-source }}
-        PIPEKIT_INPUTS: ${{ inputs.task }}
+        PIPEKIT_INPUTS: ${{ inputs.inputs }}
         PIPEKIT_PASS_WHEN: ${{ inputs.pass-when }}
         PIPEKIT_AGENT: ${{ inputs.agent }}
         PIPEKIT_PREFERRED: ${{ inputs.preferred }}

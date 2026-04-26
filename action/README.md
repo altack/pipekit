@@ -7,7 +7,7 @@ GitHub Action wrapper around the [Pipekit](../README.md) runner image.
 | Input | Required | Default | Description |
 |---|---|---|---|
 | `recipe` | yes | — | `@pipekit/<name>` for a built-in, or a path inside the repo to a recipe directory / `recipe.yaml`. |
-| `task` | no | `'{}'` | JSON inputs for the recipe. |
+| `inputs` | no | `'{}'` | Runtime parameters for the recipe — a JSON object validated against the recipe's `inputs.schema`. The recipe defines the task; this is per-run data (URL, package list, etc.). |
 | `pass-when` | no | — | jq expression evaluated against `result.json`. If unset, verdict comes from `.status`. |
 | `agent` | no | — | Explicit driver name (`claude-code` \| `codex` \| `copilot`). Bypasses recipe-declared preference. |
 | `preferred` | no | recipe-declared | Comma-separated ordered fallback list. Overrides the recipe's `agents.preferred`. |
@@ -35,7 +35,7 @@ At least one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GH_TOKEN` must be exp
 - uses: altack/pipekit-action@v1
   with:
     recipe: '@pipekit/hello'
-    task: '{"name":"CI"}'
+    inputs: '{"name":"CI"}'
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
@@ -46,7 +46,7 @@ At least one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GH_TOKEN` must be exp
 - uses: altack/pipekit-action@v1
   with:
     recipe: '@pipekit/exploratory-tests'
-    task: |
+    inputs: |
       { "target": "https://staging.example.com",
         "goals": ["Sign-up flow completes", "No console errors on /home"] }
     pass-when: '.findings | map(select(.severity == "blocker")) | length == 0'
@@ -61,7 +61,7 @@ At least one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GH_TOKEN` must be exp
 - uses: altack/pipekit-action@v1
   with:
     recipe: ./.pipekit/recipes/release-notes
-    task: '{"since":"v1.2.0","until":"HEAD"}'
+    inputs: '{"since":"v1.2.0","until":"HEAD"}'
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
@@ -84,7 +84,7 @@ jobs:
       - uses: altack/pipekit-action@v1
         with:
           recipe: '@pipekit/exploratory-tests'
-          task: '{"target":"https://staging.example.com","goals":["..."]}'
+          inputs: '{"target":"https://staging.example.com","goals":["..."]}'
         env: { ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }} }
 ```
 
