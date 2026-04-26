@@ -19,6 +19,7 @@ name:        dep-migration-check          # required, kebab-case
 version:     1.0.0                         # required, semver
 description: One-line tagline.             # required
 homepage:    https://...                   # optional
+tags:        [migration, javascript]       # optional, discovery only
 prompt:      ./prompt.md                   # required, path relative to recipe.yaml
 
 # ─── Setup (runs as root before agent starts) ────────────────────────────
@@ -63,6 +64,7 @@ inputs:
 | `description` | yes | — | One sentence. Shown in CI step summaries. |
 | `prompt` | yes | — | Path to the `.md` system prompt, relative to `recipe.yaml`. |
 | `homepage` | no | — | Discovery only. |
+| `tags` | no | `[]` | Array of strings. Discovery only — surfaced in the marketplace index. |
 | `setup.shell` | no | — | Bash snippet, runs as root before agent. Failure → exit 2. |
 | `setup.timeout` | no | `300` | Seconds. Hard kill on overrun → exit 2. |
 | `requires.commands` | no | `[]` | Each must be on `PATH` after setup. Missing → exit 2. |
