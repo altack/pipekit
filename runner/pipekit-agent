@@ -22,6 +22,11 @@ fail() { log "ERROR: $*"; exit 2; }
 
 : "${PIPEKIT_RECIPE:?required: built-in @pipekit/<name> or path to a recipe.yaml}"
 
+# Capture run.started_at the moment Phase 1 enters — pre-setup, pre-agent.
+# Phase 2 stamps this into result.json after the agent writes it.
+PIPEKIT_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export PIPEKIT_STARTED_AT
+
 WORKSPACE="${PIPEKIT_WORKSPACE:-/work}"
 mkdir -p "$WORKSPACE/artifacts"
 
@@ -58,12 +63,20 @@ log "recipe: $RECIPE_PATH"
 # ─── Parse recipe.yaml ─────────────────────────────────────────────────────
 RECIPE_NAME=$(yq -r '.name // ""' "$RECIPE_PATH")
 [[ -n "$RECIPE_NAME" ]] || fail "recipe.yaml missing required field: name"
+RECIPE_VERSION=$(yq -r '.version // ""' "$RECIPE_PATH")
 PROMPT_REL=$(yq -r '.prompt // ""' "$RECIPE_PATH")
 [[ -n "$PROMPT_REL" ]] || fail "recipe.yaml missing required field: prompt"
 # Strip leading ./ to keep the resolved path clean in logs
 PROMPT_REL="${PROMPT_REL#./}"
 PROMPT_PATH="$RECIPE_DIR/$PROMPT_REL"
 [[ -r "$PROMPT_PATH" ]] || fail "prompt not found: $PROMPT_PATH"
+
+# Compose the recipe identifier the runner stamps into result.json.run.recipe.
+# Namespaced @<org>/<name> → @<org>/<name>@<version>; path-based → <name>@<version>.
+case "$PIPEKIT_RECIPE" in
+  @*/*) RECIPE_ID="$PIPEKIT_RECIPE${RECIPE_VERSION:+@$RECIPE_VERSION}" ;;
+  *)    RECIPE_ID="$RECIPE_NAME${RECIPE_VERSION:+@$RECIPE_VERSION}" ;;
+esac
 
 log "recipe name: $RECIPE_NAME"
 log "prompt: $PROMPT_PATH"
@@ -74,6 +87,24 @@ INPUTS="${PIPEKIT_INPUTS-}"
 printf '%s' "$INPUTS" > "$WORKSPACE/inputs.json"
 jq empty "$WORKSPACE/inputs.json" 2>/dev/null \
   || fail "PIPEKIT_INPUTS is not valid JSON"
+
+# ─── Validate inputs against recipe's inputs.schema (if declared) ─────────
+# The recipe may declare a JSON Schema under inputs.schema. We extract it
+# with yq, validate inputs.json against it with ajv. Failure exits 2 so the
+# agent never sees malformed inputs.
+HAS_SCHEMA=$(yq -r '.inputs.schema | type' "$RECIPE_PATH" 2>/dev/null)
+if [[ "$HAS_SCHEMA" == "!!map" || "$HAS_SCHEMA" == "object" ]]; then
+  SCHEMA_FILE="$(mktemp /tmp/pipekit-schema.XXXXXX.json)"
+  yq -o=json '.inputs.schema' "$RECIPE_PATH" > "$SCHEMA_FILE"
+  if ! ajv validate --strict=false -s "$SCHEMA_FILE" -d "$WORKSPACE/inputs.json" >/tmp/pipekit-ajv.out 2>&1; then
+    log "ERROR: inputs.json failed validation against recipe's inputs.schema:"
+    sed 's/^/  /' /tmp/pipekit-ajv.out >&2
+    rm -f "$SCHEMA_FILE" /tmp/pipekit-ajv.out
+    exit 2
+  fi
+  rm -f "$SCHEMA_FILE" /tmp/pipekit-ajv.out
+  log "inputs.json valid (schema check passed)"
+fi
 
 cp "$RECIPE_PATH" "$WORKSPACE/recipe.yaml"
 log "workspace: $WORKSPACE"
@@ -170,6 +201,7 @@ chown -R node:node "$WORKSPACE"
 export PIPEKIT_WORKSPACE="$WORKSPACE"
 export PIPEKIT_AGENT="$PICK"
 export PIPEKIT_RECIPE_DIR="$RECIPE_DIR"
+export PIPEKIT_RECIPE_ID="$RECIPE_ID"
 export HOME=/home/node
 
 log "demoting to node; driver=$PICK model=${PIPEKIT_MODEL:-<driver default>}"

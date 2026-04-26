@@ -54,6 +54,30 @@ fi
 jq empty "$WORKSPACE/result.json" 2>/dev/null \
   || fail "result.json is not valid JSON"
 
+# ─── Stamp runner-known fields into result.json.run ────────────────────────
+# Authoritative for recipe/agent/model/started_at/finished_at — overwrites any
+# values the agent wrote. Agent retains authorship of phases_completed and
+# overall_status (and any other run.* keys it wants to set).
+PIPEKIT_FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+TMP_RESULT="$(mktemp "$WORKSPACE/result.json.XXXXXX")"
+if jq --arg recipe   "${PIPEKIT_RECIPE_ID:-}" \
+      --arg agent    "${PICK}" \
+      --arg model    "${PIPEKIT_MODEL:-}" \
+      --arg started  "${PIPEKIT_STARTED_AT:-}" \
+      --arg finished "$PIPEKIT_FINISHED_AT" \
+      '.run = (.run // {})
+       | .run.recipe      = $recipe
+       | .run.agent       = $agent
+       | .run.model       = $model
+       | .run.started_at  = $started
+       | .run.finished_at = $finished' \
+      "$WORKSPACE/result.json" > "$TMP_RESULT"; then
+  mv "$TMP_RESULT" "$WORKSPACE/result.json"
+else
+  rm -f "$TMP_RESULT"
+  log "WARNING: failed to stamp run.* into result.json (kept agent values)"
+fi
+
 if [[ -n "${PIPEKIT_PASS_WHEN:-}" ]]; then
   log "evaluating pass-when: $PIPEKIT_PASS_WHEN"
   if jq -e "$PIPEKIT_PASS_WHEN" "$WORKSPACE/result.json" >/dev/null 2>&1; then

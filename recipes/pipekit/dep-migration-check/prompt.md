@@ -38,7 +38,7 @@ Your job: take the consumer from their current state to a working post-upgrade s
 
 ## Phase state machine
 
-Phases run in order: **catalog → upgrade → migrate → build → replay → report**. Announce each before starting (`phase: catalog`). Flush a partial `artifacts/report.json` at every phase boundary — the last flush is the salvage if the run dies.
+Phases run in order: **catalog → upgrade → migrate → build → replay → report**. Announce each before starting (`phase: catalog`). Flush a partial `result.json` at every phase boundary — the last flush is the salvage if the run dies. (Partial flushes can omit the runner-stamped `run.recipe`/`agent`/`model`/`started_at`/`finished_at` — the runner sets those at the end regardless.)
 
 ### catalog — capture "last known good"
 
@@ -99,21 +99,22 @@ If `inputs.boot.build` is declared and the migrate phase did not already run it 
 
 ### report — materialize the output
 
-1. Write `${PIPEKIT_WORKSPACE}/artifacts/report.json` — the rich machine-readable report. **Schema is `${PIPEKIT_RECIPE_DIR}/report.spec.md` — re-read it before writing; field types are not negotiable** (`affected_components` and `affected_routes` are *numbers*, not arrays; `run.finished_at`, `run.libraries`, `run.app`, `run.phases_completed`, `run.overall_status` are all required).
-2. Render `${PIPEKIT_WORKSPACE}/artifacts/report.consumer.md` (full narrative, all findings, catalog reference, ✓/✗ CHANGELOG badges).
-3. Render `${PIPEKIT_WORKSPACE}/artifacts/report.maintainer.md` (drop `owner: "app"` findings, apply `redact` rules, foreground the CHANGELOG Audit crosswalk, group low-confidence findings separately).
-4. **Generate `${PIPEKIT_WORKSPACE}/artifacts/changes.patch`**: `git -C /repo diff > "${PIPEKIT_WORKSPACE}/artifacts/changes.patch"` capturing every edit made during migrate (migrations + fixes). If `/repo` isn't a git worktree, synthesize the patch from observable before/after state and note that in the report. Document the apply path consumer-side: their CI will publish the workspace as a job artifact, and `git apply` is run from inside their repo against the `changes.patch` file at whatever path they downloaded it to — DO NOT prefix the path with `autotest-report/` or any other concrete dir; reference the file as just `changes.patch` and let the consumer figure out the full path on their end.
-5. Write **`${PIPEKIT_WORKSPACE}/result.json`** — the pipekit verdict (schema below). This is the single thing the CI integration reads to decide pass/fail.
-6. Verify internal consistency: every path referenced in `artifacts/report.json` exists under `artifacts/`; paths inside `report.json`'s `evidence` blocks are relative to `artifacts/`.
+1. Write **`${PIPEKIT_WORKSPACE}/result.json`** — the single machine-readable verdict. **Schema is `/pipekit/docs/result.spec.md` — re-read it before writing; field types are not negotiable** (`affected_components` and `affected_routes` are *numbers*, not arrays). The runner stamps `run.recipe`, `run.agent`, `run.model`, `run.started_at`, `run.finished_at` for you — do not author those. You DO author `run.phases_completed` and `run.overall_status`.
+2. Render `${PIPEKIT_WORKSPACE}/artifacts/report.consumer.md` (full narrative, all findings, catalog reference, ✓/✗ CHANGELOG badges) — derived view for the consumer team.
+3. Render `${PIPEKIT_WORKSPACE}/artifacts/report.maintainer.md` (drop `owner: "app"` findings, apply `redact` rules, foreground the CHANGELOG Audit crosswalk, group low-confidence findings separately) — derived view for the library/maintainer team.
+4. **Generate `${PIPEKIT_WORKSPACE}/artifacts/changes.patch`**: `git -C /repo diff > "${PIPEKIT_WORKSPACE}/artifacts/changes.patch"` capturing every edit made during migrate (migrations + fixes). If `/repo` isn't a git worktree, synthesize the patch from observable before/after state and note that in the report. Reference the file as just `changes.patch` in the markdown reports — let consumers figure out their own download path.
+5. Verify internal consistency: every path referenced in `result.json.findings[].evidence` exists under `artifacts/`; paths are relative to `artifacts/` (e.g. `screenshots/foo.png`, not `artifacts/screenshots/foo.png` and not `/work/artifacts/screenshots/foo.png`).
 
-## `result.json` (the pipekit verdict)
-
-Write **exactly once** at the end of the report phase. The findings array is a faithful subset of `artifacts/report.json` findings (same field names, same shape — see `${PIPEKIT_RECIPE_DIR}/report.spec.md`).
+## `result.json` shape (recipe-specific instance of `/pipekit/docs/result.spec.md`)
 
 ```json
 {
   "status":  "pass" | "fail",
   "summary": "one line, e.g. 'upgrade landed; 0 blockers, 2 majors, 5 minors across 4 routes'",
+  "run": {
+    "phases_completed": ["catalog","upgrade","migrate","build","replay","report"],
+    "overall_status":   "clean | minor-findings | major-findings | blocker"
+  },
   "findings": [
     {
       "id":       "F-0001",
@@ -130,6 +131,8 @@ Write **exactly once** at the end of the report phase. The findings array is a f
       "phase":    "catalog | upgrade | migrate | build | replay | report",
       "confidence":          0.0,
       "confidence_evidence": ["..."],
+      "library_component":   "<custom-element-tag or null>",
+      "route":               "<route path or null>",
       "evidence": {
         "screenshots": ["screenshots/foo.png"],
         "logs":        ["logs/migrate.log"],
@@ -139,23 +142,25 @@ Write **exactly once** at the end of the report phase. The findings array is a f
     }
   ],
   "outputs": {
-    "packages":     ["@org/foo@1.2.3", "..."],
-    "version_from": { "@org/foo": "1.0.0" },
-    "version_to":   { "@org/foo": "1.2.3" },
+    "app":           "<app name (e.g. inferred from /repo/package.json)>",
+    "libraries":     ["@org/foo", "@org/bar"],
+    "packages":      ["@org/foo@1.2.3", "..."],
+    "version_from":  { "@org/foo": "1.0.0" },
+    "version_to":    { "@org/foo": "1.2.3" },
     "build_passed":  true,
     "replay_passed": true,
     "blocker_count": 0,
     "major_count":   2,
-    "minor_count":   5
+    "minor_count":   5,
+    "changelog": {
+      "entries": [ { "package": "@org/foo", "source": "url|path|text", "lines": ["..."] } ]
+    },
+    "journey": "Free-prose narrative of what happened across phases — what booted, what installed, what migrated, what replayed. Renders in the viewer as the journey card."
   }
 }
 ```
 
-Evidence paths in `result.json` and `report.json` are **relative to `artifacts/`** (e.g., `screenshots/foo.png`, not `artifacts/screenshots/foo.png` and not `/work/artifacts/screenshots/foo.png`). The viewer prepends the workspace path at render time.
-
 **Verdict rule:** `status: "pass"` if `outputs.blocker_count == 0`, else `"fail"`. The pipekit container exit code derives from this; users who want stricter gates set `PIPEKIT_PASS_WHEN` (e.g. `'.outputs.major_count == 0'`) at the CI layer.
-
-The `findings[]` array in `result.json` mirrors the rich `artifacts/report.json` findings. Same field types, same identifiers — `result.json` is a faithful subset, not a re-shaping.
 
 ## Severity rubric
 
@@ -163,9 +168,9 @@ The `findings[]` array in `result.json` mirrors the rich `artifacts/report.json`
 - **major** — upgrade viable, but a user would notice. Dialog won't open, button invisible, console error on a named journey, a fix was required to keep the build alive.
 - **minor** — cosmetic/ambient. ≤5px drift inside spec, color shift inside spec, console warning, clean codemod, mechanical agent fix.
 
-Successes are not findings. Clean migration, passing build, unchanged route → journey narrative only.
+Successes are not findings. Clean migration, passing build, unchanged route → journey narrative (in `outputs.journey`) only.
 
-`severity_rationale` (in the rich `artifacts/report.json`) must reference impact fields (`affected_components`, `affected_routes`, `user_flow_blocked`, `console_errors_observed`).
+`severity_rationale` must reference impact fields (`affected_components`, `affected_routes`, `user_flow_blocked`, `console_errors_observed`).
 
 ## Confidence discipline
 
@@ -226,4 +231,4 @@ Never `exit 1` yourself. The pipekit container exit code derives from `result.js
 - Don't reformat CHANGELOG entries in the report. Copy verbatim.
 - Don't commit, push, or open PRs. `/repo` edits are ephemeral; `changes.patch` captures them.
 - Don't ask the user questions. There is no user at runtime.
-- Don't write `result.json` until the report phase. Write a partial `artifacts/report.json` at every phase boundary instead — that's the in-progress salvage point.
+- Don't gate the final `result.json` write on the report phase. Flush partial `result.json` at every phase boundary so a crashed run is still partially salvageable.

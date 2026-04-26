@@ -154,12 +154,18 @@ Conventions captured in [`pipekit-out/conventions.md`](pipekit-out/conventions.m
 
 ### report — materialize the verdict
 
-Write `${PIPEKIT_WORKSPACE}/result.json`:
+Write `${PIPEKIT_WORKSPACE}/result.json` conformant to `/pipekit/docs/result.spec.md`. The runner stamps `run.recipe`, `run.agent`, `run.model`, `run.started_at`, `run.finished_at` for you — do not author those. You DO author `run.phases_completed` (the recipe phases you actually completed) and `run.overall_status`.
+
+Evidence paths are **relative to `artifacts/`** (e.g. `logs/test-foo-attempt-1.log`, not `artifacts/logs/...`).
 
 ```json
 {
   "status":  "pass" | "fail",
   "summary": "one line, e.g. 'generated 5 tests; 4 passed and shipped, 1 dropped'",
+  "run": {
+    "phases_completed": ["discover","analyze","plan","generate","run","iterate","ship","report"],
+    "overall_status":   "clean | minor-findings | major-findings | blocker"
+  },
   "findings": [
     {
       "id":       "T-0001",
@@ -167,8 +173,11 @@ Write `${PIPEKIT_WORKSPACE}/result.json`:
       "severity": "blocker | major | minor",
       "summary":  "<spec name>: <outcome>",
       "detail":   "what was attempted, what happened",
+      "phase":    "iterate",
+      "confidence":          0.0,
+      "confidence_evidence": ["..."],
       "evidence": {
-        "logs": ["artifacts/logs/test-<spec>-attempt-<n>.log"]
+        "logs": ["logs/test-<spec>-attempt-<n>.log"]
       }
     }
   ],

@@ -102,7 +102,11 @@ Drop a recipe directory in your repo and pass its path:
     inputs: '{"hello":"world"}'
 ```
 
-A recipe is a directory with `recipe.yaml` + `prompt.md` (and optional sibling scripts/specs). The schema is in [`docs/recipe.spec.md`](./docs/recipe.spec.md): declare your `setup.shell`, `requires.{commands,env,mounts}`, `agents.preferred`, `inputs.schema`, point at your prompt, ship it.
+A recipe is a directory with `recipe.yaml` + `prompt.md` (and optional sibling helper scripts). Three specs together describe the system end-to-end:
+
+- [`docs/recipe.spec.md`](./docs/recipe.spec.md) — what you write (the `recipe.yaml` schema): `setup.shell`, `requires.{commands,env,mounts}`, `agents.preferred`, `inputs.schema`, prompt path.
+- [`docs/result.spec.md`](./docs/result.spec.md) — what your prompt writes back: the universal `result.json` schema. One file, one shape, all recipes.
+- [`docs/contract.md`](./docs/contract.md) — the runtime API of the runner image: env vars in, exit codes out.
 
 ## Multi-agent
 
@@ -119,7 +123,7 @@ runner/        the docker image — pure harness, no recipes baked in
 recipes/       local recipes for development; production lives in pipekit/pipekit-recipes
 action/        the GitHub Action
 gitlab/        the GitLab CI include
-docs/          recipe.spec.md + contract.md
+docs/          recipe.spec.md + result.spec.md + contract.md
 e2e/           local end-to-end smoke + playground integration
 ```
 

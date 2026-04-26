@@ -73,11 +73,12 @@ RUN mkdir -p /work /pipekit/recipes /pipekit/drivers /pipekit/lib \
   && mkdir -p /home/node/.cache /home/node/.claude /home/node/.local/bin \
   && chown -R node:node /work /pipekit /home/node
 
-RUN npm install -g agent-browser
+RUN npm install -g agent-browser ajv-cli ajv-formats
 
 COPY --chown=node:node runner/pipekit-agent /usr/local/bin/pipekit-agent
 COPY --chown=node:node runner/lib/          /pipekit/lib/
 COPY --chown=node:node runner/drivers/      /pipekit/drivers/
+COPY --chown=node:node docs/result.spec.md  /pipekit/docs/result.spec.md
 RUN chmod +x /usr/local/bin/pipekit-agent \
   && find /pipekit/drivers /pipekit/lib -name '*.sh' -exec chmod +x {} +
 
