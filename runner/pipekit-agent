@@ -60,6 +60,8 @@ RECIPE_NAME=$(yq -r '.name // ""' "$RECIPE_PATH")
 [[ -n "$RECIPE_NAME" ]] || fail "recipe.yaml missing required field: name"
 PROMPT_REL=$(yq -r '.prompt // ""' "$RECIPE_PATH")
 [[ -n "$PROMPT_REL" ]] || fail "recipe.yaml missing required field: prompt"
+# Strip leading ./ to keep the resolved path clean in logs
+PROMPT_REL="${PROMPT_REL#./}"
 PROMPT_PATH="$RECIPE_DIR/$PROMPT_REL"
 [[ -r "$PROMPT_PATH" ]] || fail "prompt not found: $PROMPT_PATH"
 

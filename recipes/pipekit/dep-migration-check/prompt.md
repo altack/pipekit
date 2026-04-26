@@ -99,16 +99,16 @@ If `inputs.boot.build` is declared and the migrate phase did not already run it 
 
 ### report — materialize the output
 
-1. Write `artifacts/report.json` — the rich machine-readable report (run metadata, all findings, changelog crosswalk).
-2. Render `artifacts/report.consumer.md` (full narrative, all findings, catalog reference, ✓/✗ CHANGELOG badges).
-3. Render `artifacts/report.maintainer.md` (drop `owner: "app"` findings, apply `redact` rules, foreground the CHANGELOG Audit crosswalk, group low-confidence findings separately).
-4. **Generate `artifacts/changes.patch`**: `git -C /repo diff > "${PIPEKIT_WORKSPACE}/artifacts/changes.patch"` capturing every edit made during migrate (migrations + fixes). If `/repo` isn't a git worktree, skip the patch and note it. The consumer applies it via `git apply autotest-report/changes.patch` if they want the agent's work.
+1. Write `${PIPEKIT_WORKSPACE}/artifacts/report.json` — the rich machine-readable report. **Schema is `${PIPEKIT_RECIPE_DIR}/report.spec.md` — re-read it before writing; field types are not negotiable** (`affected_components` and `affected_routes` are *numbers*, not arrays; `run.finished_at`, `run.libraries`, `run.app`, `run.phases_completed`, `run.overall_status` are all required).
+2. Render `${PIPEKIT_WORKSPACE}/artifacts/report.consumer.md` (full narrative, all findings, catalog reference, ✓/✗ CHANGELOG badges).
+3. Render `${PIPEKIT_WORKSPACE}/artifacts/report.maintainer.md` (drop `owner: "app"` findings, apply `redact` rules, foreground the CHANGELOG Audit crosswalk, group low-confidence findings separately).
+4. **Generate `${PIPEKIT_WORKSPACE}/artifacts/changes.patch`**: `git -C /repo diff > "${PIPEKIT_WORKSPACE}/artifacts/changes.patch"` capturing every edit made during migrate (migrations + fixes). If `/repo` isn't a git worktree, synthesize the patch from observable before/after state and note that in the report. Document the apply path consumer-side: their CI will publish the workspace as a job artifact, and `git apply` is run from inside their repo against the `changes.patch` file at whatever path they downloaded it to — DO NOT prefix the path with `autotest-report/` or any other concrete dir; reference the file as just `changes.patch` and let the consumer figure out the full path on their end.
 5. Write **`${PIPEKIT_WORKSPACE}/result.json`** — the pipekit verdict (schema below). This is the single thing the CI integration reads to decide pass/fail.
-6. Verify internal consistency: every path referenced in `artifacts/report.json` exists under `artifacts/`; paths are relative to that directory.
+6. Verify internal consistency: every path referenced in `artifacts/report.json` exists under `artifacts/`; paths inside `report.json`'s `evidence` blocks are relative to `artifacts/`.
 
 ## `result.json` (the pipekit verdict)
 
-Write **exactly once** at the end of the report phase:
+Write **exactly once** at the end of the report phase. The findings array is a faithful subset of `artifacts/report.json` findings (same field names, same shape — see `${PIPEKIT_RECIPE_DIR}/report.spec.md`).
 
 ```json
 {
@@ -117,17 +117,23 @@ Write **exactly once** at the end of the report phase:
   "findings": [
     {
       "id":       "F-0001",
-      "category": "migrate | build | replay | exploration | upgrade",
+      "category": "catalog | upgrade | migrate | build | runtime | visual | undocumented | exploration",
       "severity": "blocker | major | minor",
+      "severity_rationale":      "one-sentence justification referencing the impact fields below",
+      "affected_components":     0,
+      "affected_routes":         0,
+      "user_flow_blocked":       false,
+      "console_errors_observed": 0,
       "summary":  "short headline",
       "detail":   "prose",
       "owner":    "library | app | uncertain",
+      "phase":    "catalog | upgrade | migrate | build | replay | report",
       "confidence":          0.0,
       "confidence_evidence": ["..."],
       "evidence": {
-        "screenshots": ["artifacts/screenshots/foo.png"],
-        "logs":        ["artifacts/logs/migrate.log"],
-        "snapshots":   ["artifacts/snapshots/foo.html"]
+        "screenshots": ["screenshots/foo.png"],
+        "logs":        ["logs/migrate.log"],
+        "snapshots":   ["snapshots/foo.html"]
       },
       "changelog_mentions": ["..."]
     }
@@ -144,6 +150,8 @@ Write **exactly once** at the end of the report phase:
   }
 }
 ```
+
+Evidence paths in `result.json` and `report.json` are **relative to `artifacts/`** (e.g., `screenshots/foo.png`, not `artifacts/screenshots/foo.png` and not `/work/artifacts/screenshots/foo.png`). The viewer prepends the workspace path at render time.
 
 **Verdict rule:** `status: "pass"` if `outputs.blocker_count == 0`, else `"fail"`. The pipekit container exit code derives from this; users who want stricter gates set `PIPEKIT_PASS_WHEN` (e.g. `'.outputs.major_count == 0'`) at the CI layer.
 
