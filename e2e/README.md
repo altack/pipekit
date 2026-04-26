@@ -11,7 +11,7 @@ The smoke script builds the runner image locally and exercises the contract from
 | 3. pass-when override | `@pipekit/hello` | `PIPEKIT_PASS_WHEN='.status == "fail"'` | 1 | `pass` (verdict is fail) |
 | 4. explicit unavailable | `@pipekit/hello` | `PIPEKIT_AGENT=codex` (stub) | 2 | — (no LLM call) |
 | 5. preferred fallback | `@pipekit/hello` | `PIPEKIT_PREFERRED=codex,copilot,claude-code` | 0 | `pass` |
-| 6. setup.shell | `e2e/recipes/setup-marker` | recipe sets up `/tmp/pipekit-marker` as root, agent reads it | 0 | `pass` |
+| 6. setup.shell | `e2e/fixtures/setup-marker` | recipe sets up `/tmp/pipekit-marker` as root, agent reads it | 0 | `pass` |
 
 If all six pass, the harness is wired correctly: recipe resolution, inputs marshalling, **`setup.shell` runs as root and is visible to the demoted agent**, `requires.*` validation, agent resolution (explicit + preferred fallback), driver dispatch, `result.json` validation, and both verdict paths (default vs. `pass_when` override).
 

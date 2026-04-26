@@ -8,13 +8,13 @@ This doc captures the shape we're committing to *before* extracting recipes from
 
 | Repo | Role | What lives here |
 |---|---|---|
-| `pipekit/pipekit` (this) | Harness | Runner image, drivers, GitHub Action, GitLab include, specs (`docs/`), e2e fixtures. |
-| `pipekit/pipekit-recipes` | Canonical content + indexer | Recipes under `recipes/<org>/<name>/`, `publishers.yaml`, `.github/workflows/index.yml` (the indexer Action). Publishes `index.json` to GitHub Pages. |
-| `pipekit/pipekit.dev` | Static site | Astro app. Fetches `index.json` at build time, renders cards + detail pages. Deployed to Pages or Vercel. |
+| `altack/pipekit` (this) | Harness | Runner image, drivers, GitHub Action, GitLab include, specs (`docs/`), e2e fixtures. |
+| `altack/pipekit-recipes` | Canonical content + indexer | Recipes under `recipes/<org>/<name>/`, `publishers.yaml`, `.github/workflows/index.yml` (the indexer Action). Publishes `index.json` to GitHub Pages. |
+| `altack/pipekit.dev` | Static site | Astro app. Fetches `index.json` at build time, renders cards + detail pages. Deployed to Pages or Vercel. |
 
 The split keeps each repo's audience distinct: harness contributors, recipe authors, site contributors. Recipe contributors never need to touch site code.
 
-## `pipekit/pipekit-recipes` layout
+## `altack/pipekit-recipes` layout
 
 ```
 pipekit-recipes/
@@ -65,7 +65,7 @@ The indexer emits one file the site consumes. Schema:
   "publishers": [
     {
       "org": "pipekit",
-      "repo": "pipekit/pipekit-recipes",
+      "repo": "altack/pipekit-recipes",
       "ref": "main",
       "sha": "abc123...",          // commit SHA at index time
       "canonical": true            // pipekit org only
@@ -93,7 +93,7 @@ The indexer emits one file the site consumes. Schema:
       },
       "inputs_schema": { "type": "object", "...": "..." },
       "source": {
-        "repo": "pipekit/pipekit-recipes",
+        "repo": "altack/pipekit-recipes",
         "path": "recipes/pipekit/hello",
         "ref": "main",
         "sha": "abc123..."
@@ -114,11 +114,11 @@ Decisions baked in:
 - **Source SHA pins.** Every entry records the commit SHA at index time, so a stale `index.json` still resolves to deterministic content.
 - **`tags` is recipe-author-controlled.** Add a top-level `tags: [...]` to `recipe.yaml`. Schema update for `recipe.spec.md` will land alongside this work.
 
-The indexer publishes `index.json` to the `gh-pages` branch of `pipekit/pipekit-recipes`, served at `https://pipekit.github.io/pipekit-recipes/index.json` (or behind a custom domain like `recipes.pipekit.dev`).
+The indexer publishes `index.json` to the `gh-pages` branch of `altack/pipekit-recipes`, served at `https://altack.github.io/pipekit-recipes/index.json` (or behind a custom domain like `recipes.pipekit.dev`).
 
 ## Indexer Action
 
-`.github/workflows/index.yml` in `pipekit/pipekit-recipes`. Triggers:
+`.github/workflows/index.yml` in `altack/pipekit-recipes`. Triggers:
 - `push` to `main` (recipes changed)
 - `schedule: cron: '0 */6 * * *'` (publishers changed)
 - `workflow_dispatch` (manual rebuild)
@@ -145,7 +145,7 @@ Rate limit: authenticated runs get 5k req/h. With ~3 API calls per active publis
 
 This is what makes "PR-as-publish" trustworthy: publisher claims are verified at merge time, not at runtime.
 
-## Site (`pipekit/pipekit.dev`)
+## Site (`altack/pipekit.dev`)
 
 Astro static site. Build-time fetch of `index.json`; one detail page generated per recipe.
 
@@ -158,7 +158,7 @@ Per-recipe page must include copy-paste blocks:
 
 ```yaml
 # GitHub Action
-- uses: pipekit/pipekit-action@main
+- uses: altack/pipekit-action@main
   with:
     recipe: '@pipekit/hello'
     inputs: |
@@ -168,7 +168,7 @@ Per-recipe page must include copy-paste blocks:
 ```yaml
 # GitLab CI
 include:
-  - remote: 'https://raw.githubusercontent.com/pipekit/pipekit/main/gitlab/v1.yml'
+  - remote: 'https://raw.githubusercontent.com/altack/pipekit/main/gitlab/v1.yml'
 pipekit:
   variables:
     PIPEKIT_RECIPE: '@pipekit/hello'

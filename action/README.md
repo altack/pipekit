@@ -32,7 +32,7 @@ At least one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GH_TOKEN` must be exp
 ### Smoke test
 
 ```yaml
-- uses: altack/pipekit-action@v1
+- uses: altack/pipekit-action@main
   with:
     recipe: '@pipekit/hello'
     inputs: '{"name":"CI"}'
@@ -43,7 +43,7 @@ At least one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GH_TOKEN` must be exp
 ### Exploratory test against staging
 
 ```yaml
-- uses: altack/pipekit-action@v1
+- uses: altack/pipekit-action@main
   with:
     recipe: '@pipekit/exploratory-tests'
     inputs: |
@@ -58,7 +58,7 @@ At least one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GH_TOKEN` must be exp
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: altack/pipekit-action@v1
+- uses: altack/pipekit-action@main
   with:
     recipe: ./.pipekit/recipes/release-notes
     inputs: '{"since":"v1.2.0","until":"HEAD"}'
@@ -73,7 +73,7 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: altack/pipekit-action@v1
+      - uses: altack/pipekit-action@main
         with: { recipe: '@pipekit/hello' }
         env: { ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }} }
 
@@ -81,7 +81,7 @@ jobs:
     needs: smoke
     runs-on: ubuntu-latest
     steps:
-      - uses: altack/pipekit-action@v1
+      - uses: altack/pipekit-action@main
         with:
           recipe: '@pipekit/exploratory-tests'
           inputs: '{"target":"https://staging.example.com","goals":["..."]}'

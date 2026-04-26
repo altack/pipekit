@@ -129,4 +129,4 @@ exit 2 (infra)  →  any of:
 
 ## Authoring a recipe
 
-See [`recipe.spec.md`](./recipe.spec.md). The smallest example is `recipes/pipekit/hello/`; the most realistic is `recipes/pipekit/dep-migration-check/`.
+See [`recipe.spec.md`](./recipe.spec.md). The smallest example is [`altack/pipekit-recipes/recipes/pipekit/hello/`](https://github.com/altack/pipekit-recipes/tree/main/recipes/pipekit/hello); the most realistic is [`altack/pipekit-recipes/recipes/pipekit/dep-migration-check/`](https://github.com/altack/pipekit-recipes/tree/main/recipes/pipekit/dep-migration-check).

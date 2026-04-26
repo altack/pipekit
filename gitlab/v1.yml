@@ -12,7 +12,7 @@
 # Set ANTHROPIC_API_KEY as a masked CI/CD variable at the project (or group) level.
 
 .pipekit:
-  image: ghcr.io/wall-street-dev/pipekit-runner:latest
+  image: ghcr.io/altack/pipekit-runner:latest
   variables:
     PIPEKIT_WORKSPACE: $CI_PROJECT_DIR/.pipekit
     PIPEKIT_RECIPES_DIR: $CI_PROJECT_DIR/.pipekit-recipes
@@ -21,7 +21,7 @@
     GIT_STRATEGY: fetch
     # User must populate $PIPEKIT_RECIPES_DIR before pipekit-agent runs when
     # using a namespaced recipe (@<org>/<name>). Typically:
-    #   git clone --depth=1 https://github.com/pipekit/pipekit-recipes "$PIPEKIT_RECIPES_DIR"
+    #   git clone --depth=1 https://github.com/altack/pipekit-recipes "$PIPEKIT_RECIPES_DIR"
     # in a project-level before_script. URL-based fetch lands in v0.2.
   before_script:
     - mkdir -p "$PIPEKIT_WORKSPACE"

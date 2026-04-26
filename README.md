@@ -8,7 +8,7 @@ Same shape as [Anthropic's Managed Agents](https://www.anthropic.com/engineering
 
 - The sandbox runs in *your* CI runner. Secrets, code, and artifacts never leave your org.
 - The agent is whichever you have credentials for (Claude Code, Codex, Copilot, …). Pipekit is multi-vendor — recipes declare a preferred fallback, the runner picks the first whose credentials are present.
-- Recipes are **content**, not harness. They live in their own repo (canonical: `pipekit/pipekit-recipes`), are versioned independently, and you can publish your own.
+- Recipes are **content**, not harness. They live in their own repo (canonical: `altack/pipekit-recipes`), are versioned independently, and you can publish your own.
 
 ## How it composes
 
@@ -39,9 +39,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          repository: pipekit/pipekit-recipes      # the marketplace
+          repository: altack/pipekit-recipes      # the marketplace
           path: .pipekit-recipes
-      - uses: altack/pipekit-action@v1
+      - uses: altack/pipekit-action@main
         with:
           recipe: '@pipekit/exploratory-tests'      # SELECT a recipe
           recipes-source: ./.pipekit-recipes
@@ -70,7 +70,7 @@ exploratory:
   extends: .pipekit
   before_script:
     - !reference [.pipekit, before_script]
-    - git clone --depth=1 https://github.com/pipekit/pipekit-recipes "$PIPEKIT_RECIPES_DIR"
+    - git clone --depth=1 https://github.com/altack/pipekit-recipes "$PIPEKIT_RECIPES_DIR"
   variables:
     PIPEKIT_RECIPE: '@pipekit/exploratory-tests'
     PIPEKIT_INPUTS: '{"target":"https://staging.example.com","goals":["..."]}'
@@ -82,7 +82,7 @@ Same shape: `PIPEKIT_RECIPE` selects, `PIPEKIT_INPUTS` parameterizes, the runner
 
 ## Built-in recipes
 
-Curated under `@pipekit/*` in the [recipes repo](https://github.com/pipekit/pipekit-recipes).
+Curated under `@pipekit/*` in the [recipes repo](https://github.com/altack/pipekit-recipes).
 
 | Name | What the recipe does (you don't define this — the recipe does) |
 | --- | --- |
@@ -96,7 +96,7 @@ Curated under `@pipekit/*` in the [recipes repo](https://github.com/pipekit/pipe
 Drop a recipe directory in your repo and pass its path:
 
 ```yaml
-- uses: altack/pipekit-action@v1
+- uses: altack/pipekit-action@main
   with:
     recipe: ./.pipekit/recipes/my-task   # local path; no @<org>/ namespace needed
     inputs: '{"hello":"world"}'
@@ -120,11 +120,12 @@ runner/        the docker image — pure harness, no recipes baked in
   pipekit-agent  Phase 1 entrypoint (root): parse recipe, run setup, validate, demote
   lib/           Phase 2 helpers (node)
   drivers/       agent drivers (claude-code, codex, copilot)
-recipes/       local recipes for development; production lives in pipekit/pipekit-recipes
 action/        the GitHub Action
 gitlab/        the GitLab CI include
-docs/          recipe.spec.md + result.spec.md + contract.md
+docs/          recipe.spec.md + result.spec.md + contract.md + marketplace.md
 e2e/           local end-to-end smoke + playground integration
+
+Recipes live in [`altack/pipekit-recipes`](https://github.com/altack/pipekit-recipes) — content, not harness. The runtime resolver supports `@<org>/<name>` against any directory mounted at `$PIPEKIT_RECIPES_DIR`. For local dev, clone the recipes repo as a sibling of this one.
 ```
 
 ## End-to-end test

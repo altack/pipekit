@@ -96,7 +96,7 @@ runs:
         RECIPES_MOUNT=()
         if [[ "$PIPEKIT_RECIPE" == @*/* ]]; then
           if [[ -z "${PIPEKIT_RECIPES_SOURCE:-}" ]]; then
-            echo "::error::recipe '$PIPEKIT_RECIPE' is namespaced; you must set 'recipes-source' to a directory containing <org>/<name>/recipe.yaml. Typically this is a checkout of pipekit/pipekit-recipes."
+            echo "::error::recipe '$PIPEKIT_RECIPE' is namespaced; you must set 'recipes-source' to a directory containing <org>/<name>/recipe.yaml. Typically this is a checkout of altack/pipekit-recipes."
             exit 2
           fi
           if [[ ! -d "$PIPEKIT_RECIPES_SOURCE" ]]; then

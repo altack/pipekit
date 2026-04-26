@@ -12,7 +12,7 @@
 #   AUTOTEST_PASSWORD  — playground login password
 #
 # Optional:
-#   PIPEKIT_IMAGE      — override image (default: ghcr.io/wall-street-dev/pipekit-runner:latest)
+#   PIPEKIT_IMAGE      — override image (default: ghcr.io/altack/pipekit-runner:latest)
 #   PLAYGROUND_REPO    — path to consumer repo (default: /Users/guzmanoj/Projects/autotest/playground)
 #   PIPEKIT_OUT        — host output dir (default: ./e2e/playground/out-<timestamp>)
 #
@@ -25,7 +25,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-IMAGE="${PIPEKIT_IMAGE:-ghcr.io/wall-street-dev/pipekit-runner:latest}"
+IMAGE="${PIPEKIT_IMAGE:-ghcr.io/altack/pipekit-runner:latest}"
 PLAYGROUND="${PLAYGROUND_REPO:-/Users/guzmanoj/Projects/autotest/playground}"
 TS="$(date +%Y%m%d-%H%M%S)"
 OUT="${PIPEKIT_OUT:-$REPO_ROOT/e2e/playground/out-$TS}"

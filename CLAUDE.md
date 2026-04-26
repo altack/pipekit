@@ -9,7 +9,7 @@ The product wedge: **same submit-task-get-verdict shape as Managed Agents, but t
 - **One container, one recipe, one structured result.** That's the unit of work.
 - **The CI engine owns the DAG.** GitHub `needs:` and GitLab `needs:` already do step orchestration. Pipekit does not compete with them.
 - **The image is an isolated environment, not a curated toolchain.** Always-on tools: shell utils, gh, glab, chromium, agent-browser, JS runtime (node/bun/pnpm/yarn), agent CLIs. Anything else (Python, Go, Ruby, language deps) is installed at runtime via the recipe's `setup.shell`.
-- **Recipes are first-class — and they are NOT baked into the image.** A recipe is a directory with `recipe.yaml` + `prompt.md`. Recipes live in their own repos (the canonical one being `pipekit/pipekit-recipes`), and the runner resolves `@<org>/<name>` against `${PIPEKIT_RECIPES_DIR:-/pipekit/recipes}` at runtime. v0.0.x: bind-mount the recipes dir from the host. v0.2: fetch on demand from `PIPEKIT_RECIPES_REGISTRY` (URL pattern; not yet implemented).
+- **Recipes are first-class — and they are NOT baked into the image.** A recipe is a directory with `recipe.yaml` + `prompt.md`. Recipes live in their own repos (the canonical one being `altack/pipekit-recipes`), and the runner resolves `@<org>/<name>` against `${PIPEKIT_RECIPES_DIR:-/pipekit/recipes}` at runtime. v0.0.x: bind-mount the recipes dir from the host. v0.2: fetch on demand from `PIPEKIT_RECIPES_REGISTRY` (URL pattern; not yet implemented).
 - **Multi-agent at the runtime layer.** Drivers: `claude-code`, `codex`, `copilot`. Recipes declare `agents.preferred`; the runner picks the first available at runtime.
 - **One JSON contract: `result.json`.** Every recipe writes a single `result.json` to the workspace root, conformant to `docs/result.spec.md`. There is **no separate "rich report" file**. Status, summary, run metadata, structured findings, recipe-defined outputs — all in one schema. The runner stamps `run.recipe`, `run.agent`, `run.model`, `run.started_at`, `run.finished_at`; the recipe authors the rest.
 - **`recipe.yaml` in, `result.json` out** — see `docs/recipe.spec.md` (input contract) and `docs/result.spec.md` (output contract); `docs/contract.md` describes the runtime API the runner image exposes.
@@ -20,9 +20,9 @@ The product wedge: **same submit-task-get-verdict shape as Managed Agents, but t
 
 A docker image baked with: agent CLIs (Claude Code, agent-browser), chromium, gh, glab, bun/pnpm/yarn, jq, yq, and a single entrypoint at `/usr/local/bin/pipekit-agent`. **No recipes are baked in** — the image is pure harness. The image runs as **root by default** so Phase 1 can run `setup.shell`; Phase 2 demotes to `node` before invoking the agent.
 
-### Recipes (`recipes/` — separate from the image)
+### Recipes (separate repo, not in this tree)
 
-Recipes live alongside the harness in this repo (`recipes/<org>/<name>/`) for development, but they are **content, not harness**. They will be extracted to `pipekit/pipekit-recipes` (the canonical marketplace) and any number of community publishers (`@yourcompany/<name>`, etc.). The runtime resolver supports `@<org>/<name>` against any directory tree mounted at `$PIPEKIT_RECIPES_DIR`.
+Recipes are **content, not harness** and live in [`altack/pipekit-recipes`](https://github.com/altack/pipekit-recipes) — the canonical marketplace. Any number of community publishers (`@yourcompany/<name>`, etc.) register via that repo's `publishers.yaml`. The runtime resolver supports `@<org>/<name>` against any directory tree mounted at `$PIPEKIT_RECIPES_DIR`. For local development, clone `pipekit-recipes` as a sibling of this repo; `e2e/smoke.sh` picks it up automatically. See [`docs/marketplace.md`](docs/marketplace.md) for the indexer + site design.
 
 ### Two-phase entrypoint
 
@@ -55,7 +55,7 @@ The agent never runs as root. setup.shell needs root for apt/curl/etc.; the demo
 in   PIPEKIT_RECIPE       @<org>/<name> (resolved against PIPEKIT_RECIPES_DIR)
                           or path to recipe dir / recipe.yaml
      PIPEKIT_RECIPES_DIR  where namespaced recipes live (default /pipekit/recipes;
-                          typically a bind-mount of pipekit/pipekit-recipes)
+                          typically a bind-mount of altack/pipekit-recipes)
      PIPEKIT_INPUTS       JSON blob (default "{}"); validated against recipe.inputs.schema
      PIPEKIT_PASS_WHEN    optional jq expression evaluated against result.json
      PIPEKIT_WORKSPACE    scratch dir (default /work)
@@ -91,7 +91,7 @@ Both shells delegate exclusively to `pipekit-agent`. They contain zero agent log
 
 - **No DAG runner is the headline.** CI engines have DAGs. We use them.
 - **The image is an isolated environment, not a curated toolchain.** Recipes install their own deps via `setup.shell` (runs as root in Phase 1). Don't grow the image's always-on tool list without a strong reason.
-- **Recipes are NOT baked into the image.** They are content, distributed via git repos (the marketplace pattern, similar to Claude Code skills). Image bake-in was an early mistake; recipes now live under `recipes/` separate from `runner/` and will be extracted to `pipekit/pipekit-recipes` for canonical distribution. v0.0.x resolves recipes via bind-mount; v0.2 adds URL-based on-demand fetch.
+- **Recipes are NOT baked into the image.** They are content, distributed via git repos (the marketplace pattern, similar to Claude Code skills). Image bake-in was an early mistake; recipes now live in `altack/pipekit-recipes` (separate repo) for canonical distribution. v0.0.x resolves recipes via bind-mount; v0.2 adds URL-based on-demand fetch. See `docs/marketplace.md` for the indexer + static-site design.
 - **One JSON output: `result.json`.** Every recipe writes a single `result.json` to the workspace root. There is no separate `artifacts/report.json`. The schema is universal — `docs/result.spec.md` is owned by pipekit, baked into the image at `/pipekit/docs/result.spec.md`, and recipes reference it by absolute path. We tried the small-pipekit-contract / rich-recipe-report split early on; it leaked schema duplication everywhere and coupled the viewer to autotest. Don't undo this.
 - **The runner stamps `run.{recipe, agent, model, started_at, finished_at}`.** Authoritative — overwrites whatever the agent wrote. The recipe authors `run.phases_completed` and `run.overall_status`.
 - **`inputs.schema` is enforced.** Recipes declare a JSON Schema; pipekit-agent validates `inputs.json` against it via `ajv` before invoking the agent. Bad inputs fail fast at exit 2 — no agent tokens spent on malformed data.
@@ -135,6 +135,6 @@ Both shells delegate exclusively to `pipekit-agent`. They contain zero agent log
 - `docs/ideas.md` — deferred ideas (LLM-driven viewer generator, recipe versioning, stdlib, image variants). Read before suggesting "what about X" — the answer might already be there.
 - `runner/pipekit-agent` — Phase 1 implementation.
 - `runner/lib/run-recipe.sh` — Phase 2 implementation.
-- `recipes/pipekit/hello/` — smallest possible example recipe.
-- `recipes/pipekit/dep-migration-check/` — most realistic example (autotest's lift).
+- `pipekit-recipes/recipes/pipekit/hello/` (sibling repo) — smallest possible example recipe.
+- `pipekit-recipes/recipes/pipekit/dep-migration-check/` (sibling repo) — most realistic example (autotest's lift).
 - `e2e/smoke.sh` — local end-to-end test.

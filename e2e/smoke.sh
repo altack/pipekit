@@ -29,6 +29,25 @@ if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
   fail "ANTHROPIC_API_KEY is not set"
 fi
 
+# ─── Resolve recipes dir ────────────────────────────────────────────────
+# Recipes live in altack/pipekit-recipes (separate repo). For local dev,
+# clone it as a sibling of pipekit/. Override with PIPEKIT_RECIPES_DIR.
+RECIPES_DIR="${PIPEKIT_RECIPES_DIR:-}"
+if [[ -z "$RECIPES_DIR" ]]; then
+  if [[ -d "$REPO_ROOT/../pipekit-recipes" ]]; then
+    RECIPES_DIR="$(cd "$REPO_ROOT/../pipekit-recipes" && pwd)"
+  elif [[ -d "$REPO_ROOT/e2e/.recipes" ]]; then
+    RECIPES_DIR="$REPO_ROOT/e2e/.recipes"
+  else
+    log "cloning altack/pipekit-recipes into e2e/.recipes (override with PIPEKIT_RECIPES_DIR)"
+    git clone --depth=1 https://github.com/altack/pipekit-recipes "$REPO_ROOT/e2e/.recipes"
+    RECIPES_DIR="$REPO_ROOT/e2e/.recipes"
+  fi
+fi
+[[ -d "$RECIPES_DIR/recipes/pipekit/hello" ]] \
+  || fail "recipes dir missing @pipekit/hello: $RECIPES_DIR"
+log "recipes:    $RECIPES_DIR"
+
 # ─── Build ───────────────────────────────────────────────────────────────
 if [[ "${PIPEKIT_SKIP_BUILD:-}" != "1" ]]; then
   log "building $IMAGE from $REPO_ROOT"
@@ -47,7 +66,7 @@ log "case 1: happy path (expect status=pass, exit 0)"
 
 set +e
 docker run --rm \
-  -v "$REPO_ROOT/recipes:/pipekit/recipes:ro" \
+  -v "$RECIPES_DIR/recipes:/pipekit/recipes:ro" \
   -v "$WORK_PASS:/work" \
   -e PIPEKIT_RECIPE='@pipekit/hello' \
   -e PIPEKIT_INPUTS='{"name":"smoke"}' \
@@ -71,7 +90,7 @@ log "case 2: request-fail (expect status=fail, exit 1)"
 
 set +e
 docker run --rm \
-  -v "$REPO_ROOT/recipes:/pipekit/recipes:ro" \
+  -v "$RECIPES_DIR/recipes:/pipekit/recipes:ro" \
   -v "$WORK_FAIL:/work" \
   -e PIPEKIT_RECIPE='@pipekit/hello' \
   -e PIPEKIT_INPUTS='{"fail":true}' \
@@ -93,7 +112,7 @@ log "case 3: pass-when inverts the verdict (expect exit 1 even though status=pas
 
 set +e
 docker run --rm \
-  -v "$REPO_ROOT/recipes:/pipekit/recipes:ro" \
+  -v "$RECIPES_DIR/recipes:/pipekit/recipes:ro" \
   -v "$WORK_PW:/work" \
   -e PIPEKIT_RECIPE='@pipekit/hello' \
   -e PIPEKIT_INPUTS='{"name":"smoke"}' \
@@ -113,7 +132,7 @@ log "case 4: explicit PIPEKIT_AGENT=codex (stub) → expect exit 2 with no API s
 
 set +e
 docker run --rm \
-  -v "$REPO_ROOT/recipes:/pipekit/recipes:ro" \
+  -v "$RECIPES_DIR/recipes:/pipekit/recipes:ro" \
   -v "$WORK_CODEX:/work" \
   -e PIPEKIT_RECIPE='@pipekit/hello' \
   -e PIPEKIT_AGENT='codex' \
@@ -132,7 +151,7 @@ log "case 5: PIPEKIT_PREFERRED=codex,copilot,claude-code → falls back to claud
 
 set +e
 docker run --rm \
-  -v "$REPO_ROOT/recipes:/pipekit/recipes:ro" \
+  -v "$RECIPES_DIR/recipes:/pipekit/recipes:ro" \
   -v "$WORK_FB:/work" \
   -e PIPEKIT_RECIPE='@pipekit/hello' \
   -e PIPEKIT_INPUTS='{"name":"fallback"}' \
@@ -156,7 +175,7 @@ log "case 6: custom recipe with setup.shell → marker file readable by agent"
 set +e
 docker run --rm \
   -v "$WORK_SETUP:/work" \
-  -v "$REPO_ROOT/e2e/recipes/setup-marker:/recipes/setup-marker:ro" \
+  -v "$REPO_ROOT/e2e/fixtures/setup-marker:/recipes/setup-marker:ro" \
   -e PIPEKIT_RECIPE='/recipes/setup-marker' \
   -e ANTHROPIC_API_KEY \
   "$IMAGE"

@@ -7,7 +7,7 @@ This is **not** a smoke test. It's an integration test:
 - Takes 15–30 minutes.
 - Costs roughly $5–15 in Claude API spend per run.
 - Requires the playground app at `/Users/guzmanoj/Projects/autotest/playground` (or override via `PLAYGROUND_REPO`).
-- Pulls `ghcr.io/wall-street-dev/pipekit-runner:latest` from GHCR.
+- Pulls `ghcr.io/altack/pipekit-runner:latest` from GHCR.
 
 ## Run it
 
