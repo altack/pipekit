@@ -9,7 +9,8 @@ Pipekit's runtime contract has two layers:
 
 | Env var | Required | Default | Meaning |
 |---|---|---|---|
-| `PIPEKIT_RECIPE` | yes | — | Recipe to load. `@pipekit/<name>` resolves to `/pipekit/recipes/<name>/recipe.yaml` (built-in). A path to a directory is treated as a recipe directory (`recipe.yaml` expected inside). A path to a file is treated as a `recipe.yaml` directly. |
+| `PIPEKIT_RECIPE` | yes | — | Recipe to load. `@<org>/<name>` resolves to `${PIPEKIT_RECIPES_DIR}/<org>/<name>/recipe.yaml` (typical use: bind-mount your recipes repo). A path to a directory is treated as a recipe directory (`recipe.yaml` expected inside). A path to a file is treated as a `recipe.yaml` directly. |
+| `PIPEKIT_RECIPES_DIR` | no | `/pipekit/recipes` | Where namespaced recipes are resolved. v0.0.x expects this to be bind-mounted from a clone of a recipes repo (e.g. `pipekit/pipekit-recipes`). v0.2 adds URL-based fetch via `PIPEKIT_RECIPES_REGISTRY`. |
 | `PIPEKIT_INPUTS` | no | `{}` | JSON blob. Materialized to `$PIPEKIT_WORKSPACE/inputs.json` before the agent starts. The recipe's `inputs.schema` (if declared) is the source of truth for what's expected. Must be valid JSON. |
 | `PIPEKIT_PASS_WHEN` | no | — | jq expression evaluated against `result.json` at the end of the run. Truthy → exit 0, falsy → exit 1. If unset, exit code derives from `result.json:.status`. |
 | `PIPEKIT_WORKSPACE` | no | `/work` | Per-task scratch directory. The CI integrations bind-mount the host's per-job temp dir here. |

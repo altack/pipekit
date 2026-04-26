@@ -65,6 +65,10 @@ RUN mkdir -p /home/node/.ssh \
   && chmod 644 /home/node/.ssh/known_hosts
 
 # ─── Pipekit layout ────────────────────────────────────────────────────────
+# Recipes are NOT baked in. The image ships only harness internals (drivers,
+# lib, agent CLIs, tools). At runtime, recipes are resolved from
+# /pipekit/recipes — typically bind-mounted from a clone of the recipes repo
+# (e.g. altack/pipekit-recipes). v0.2 will add URL-based fetch + local cache.
 RUN mkdir -p /work /pipekit/recipes /pipekit/drivers /pipekit/lib \
   && mkdir -p /home/node/.cache /home/node/.claude /home/node/.local/bin \
   && chown -R node:node /work /pipekit /home/node
@@ -73,10 +77,9 @@ RUN npm install -g agent-browser
 
 COPY --chown=node:node runner/pipekit-agent /usr/local/bin/pipekit-agent
 COPY --chown=node:node runner/lib/          /pipekit/lib/
-COPY --chown=node:node runner/recipes/      /pipekit/recipes/
 COPY --chown=node:node runner/drivers/      /pipekit/drivers/
 RUN chmod +x /usr/local/bin/pipekit-agent \
-  && find /pipekit/drivers /pipekit/lib /pipekit/recipes -name '*.sh' -exec chmod +x {} +
+  && find /pipekit/drivers /pipekit/lib -name '*.sh' -exec chmod +x {} +
 
 # ─── Bake the agent-browser skill (must run as node so it lands in node's home) ─
 USER node

@@ -6,6 +6,8 @@ Pipekit runs an agentic CLI (Claude Code, Codex, Copilot, …) inside an isolate
 
 Same shape as [Anthropic's Managed Agents](https://www.anthropic.com/engineering/managed-agents), except the sandbox runs in *your* GitHub/GitLab runner — secrets, code, and artifacts never leave your org. The image is a generic isolated environment; recipes own their own dependencies.
 
+**Recipes are content, not harness.** The runner image ships only the harness (drivers + tools). Recipes are distributed via git repos — `pipekit/pipekit-recipes` is the canonical marketplace, and you can bring your own. The runtime resolves `@<org>/<name>` against a bind-mounted recipes directory (v0.0.x) or fetches from a registry URL (v0.2+).
+
 ## Quick start — GitHub Actions
 
 ```yaml
@@ -15,9 +17,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: pipekit/pipekit-recipes      # the marketplace
+          path: .pipekit-recipes
       - uses: altack/pipekit-action@v1
         with:
           recipe: '@pipekit/exploratory-tests'
+          recipes-source: ./.pipekit-recipes        # bind-mounted into the container
           task: |
             { "target": "https://staging.example.com",
               "goals": ["Sign-up flow completes", "No console errors on /home"] }

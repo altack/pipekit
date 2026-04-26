@@ -47,6 +47,7 @@ log "case 1: happy path (expect status=pass, exit 0)"
 
 set +e
 docker run --rm \
+  -v "$REPO_ROOT/recipes:/pipekit/recipes:ro" \
   -v "$WORK_PASS:/work" \
   -e PIPEKIT_RECIPE='@pipekit/hello' \
   -e PIPEKIT_INPUTS='{"name":"smoke"}' \
@@ -70,6 +71,7 @@ log "case 2: request-fail (expect status=fail, exit 1)"
 
 set +e
 docker run --rm \
+  -v "$REPO_ROOT/recipes:/pipekit/recipes:ro" \
   -v "$WORK_FAIL:/work" \
   -e PIPEKIT_RECIPE='@pipekit/hello' \
   -e PIPEKIT_INPUTS='{"fail":true}' \
@@ -91,6 +93,7 @@ log "case 3: pass-when inverts the verdict (expect exit 1 even though status=pas
 
 set +e
 docker run --rm \
+  -v "$REPO_ROOT/recipes:/pipekit/recipes:ro" \
   -v "$WORK_PW:/work" \
   -e PIPEKIT_RECIPE='@pipekit/hello' \
   -e PIPEKIT_INPUTS='{"name":"smoke"}' \
@@ -110,6 +113,7 @@ log "case 4: explicit PIPEKIT_AGENT=codex (stub) → expect exit 2 with no API s
 
 set +e
 docker run --rm \
+  -v "$REPO_ROOT/recipes:/pipekit/recipes:ro" \
   -v "$WORK_CODEX:/work" \
   -e PIPEKIT_RECIPE='@pipekit/hello' \
   -e PIPEKIT_AGENT='codex' \
@@ -128,6 +132,7 @@ log "case 5: PIPEKIT_PREFERRED=codex,copilot,claude-code → falls back to claud
 
 set +e
 docker run --rm \
+  -v "$REPO_ROOT/recipes:/pipekit/recipes:ro" \
   -v "$WORK_FB:/work" \
   -e PIPEKIT_RECIPE='@pipekit/hello' \
   -e PIPEKIT_INPUTS='{"name":"fallback"}' \

@@ -9,7 +9,7 @@ The product wedge: **same submit-task-get-verdict shape as Managed Agents, but t
 - **One container, one recipe, one structured result.** That's the unit of work.
 - **The CI engine owns the DAG.** GitHub `needs:` and GitLab `needs:` already do step orchestration. Pipekit does not compete with them.
 - **The image is an isolated environment, not a curated toolchain.** Always-on tools: shell utils, gh, glab, chromium, agent-browser, JS runtime (node/bun/pnpm/yarn), agent CLIs. Anything else (Python, Go, Ruby, language deps) is installed at runtime via the recipe's `setup.shell`.
-- **Recipes are first-class.** A recipe is a directory with `recipe.yaml` + `prompt.md`. Built-in (`@pipekit/<name>`, baked into the image) or user-provided (path to a directory). No registry, no template engine, no remote resolution yet — that's a v0.2+ concern.
+- **Recipes are first-class — and they are NOT baked into the image.** A recipe is a directory with `recipe.yaml` + `prompt.md`. Recipes live in their own repos (the canonical one being `pipekit/pipekit-recipes`), and the runner resolves `@<org>/<name>` against `${PIPEKIT_RECIPES_DIR:-/pipekit/recipes}` at runtime. v0.0.x: bind-mount the recipes dir from the host. v0.2: fetch on demand from `PIPEKIT_RECIPES_REGISTRY` (URL pattern; not yet implemented).
 - **Multi-agent at the runtime layer.** Drivers: `claude-code`, `codex`, `copilot`. Recipes declare `agents.preferred`; the runner picks the first available at runtime.
 - **The contract is `recipe.yaml` in, `result.json` out** — see `docs/recipe.spec.md` and `docs/contract.md`.
 
@@ -17,7 +17,11 @@ The product wedge: **same submit-task-get-verdict shape as Managed Agents, but t
 
 ### Runner image (`runner/`)
 
-A docker image baked with: agent CLIs (Claude Code, agent-browser), chromium, gh, glab, bun/pnpm/yarn, jq, yq, and a single entrypoint at `/usr/local/bin/pipekit-agent`. The image runs as **root by default** so Phase 1 can run `setup.shell`; Phase 2 demotes to `node` before invoking the agent.
+A docker image baked with: agent CLIs (Claude Code, agent-browser), chromium, gh, glab, bun/pnpm/yarn, jq, yq, and a single entrypoint at `/usr/local/bin/pipekit-agent`. **No recipes are baked in** — the image is pure harness. The image runs as **root by default** so Phase 1 can run `setup.shell`; Phase 2 demotes to `node` before invoking the agent.
+
+### Recipes (`recipes/` — separate from the image)
+
+Recipes live alongside the harness in this repo (`recipes/<org>/<name>/`) for development, but they are **content, not harness**. They will be extracted to `pipekit/pipekit-recipes` (the canonical marketplace) and any number of community publishers (`@yourcompany/<name>`, etc.). The runtime resolver supports `@<org>/<name>` against any directory tree mounted at `$PIPEKIT_RECIPES_DIR`.
 
 ### Two-phase entrypoint
 
@@ -41,7 +45,10 @@ Phase 2 (node) — run-recipe.sh:
 ### Container contract
 
 ```
-in   PIPEKIT_RECIPE       @pipekit/<name> or path to recipe dir / recipe.yaml
+in   PIPEKIT_RECIPE       @<org>/<name> (resolved against PIPEKIT_RECIPES_DIR)
+                          or path to recipe dir / recipe.yaml
+     PIPEKIT_RECIPES_DIR  where namespaced recipes live (default /pipekit/recipes;
+                          typically a bind-mount of pipekit/pipekit-recipes)
      PIPEKIT_INPUTS       JSON blob (default "{}")
      PIPEKIT_PASS_WHEN    optional jq expression evaluated against result.json
      PIPEKIT_WORKSPACE    scratch dir (default /work)
@@ -73,7 +80,7 @@ Both shells delegate exclusively to `pipekit-agent`. They contain zero agent log
 
 - **No DAG runner is the headline.** CI engines have DAGs. We use them.
 - **The image is an isolated environment, not a curated toolchain.** Recipes install their own deps via `setup.shell` (runs as root in Phase 1). Don't grow the image's always-on tool list without a strong reason.
-- **No registry.** Recipes are directories baked into the image (`@pipekit/...`) or paths supplied by the user. v0.2 may add URL-based recipe resolution (e.g., `github://altack/pipekit-recipes/<name>@<tag>`); not now.
+- **Recipes are NOT baked into the image.** They are content, distributed via git repos (the marketplace pattern, similar to Claude Code skills). Image bake-in was an early mistake; recipes now live under `recipes/` separate from `runner/` and will be extracted to `pipekit/pipekit-recipes` for canonical distribution. v0.0.x resolves recipes via bind-mount; v0.2 adds URL-based on-demand fetch.
 - **No canvas in v0.x.** YAML in `.github/workflows/*.yml` and `.gitlab-ci.yml` is the canvas.
 - **No backwards compat with autotest.** Pipekit is a new product. Autotest will eventually become a built-in pipekit prompt (`@pipekit/upgrade-journey`), but until then the two systems are unrelated.
 - **`pass_when` is a jq expression**, not a custom DSL. It's evaluated against `result.json`. Inventing an expression language is yak-shaving.

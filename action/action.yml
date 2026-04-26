@@ -7,8 +7,12 @@ branding:
 
 inputs:
   recipe:
-    description: 'Built-in (@pipekit/<name>) or path to a recipe directory / recipe.yaml inside the repo'
+    description: '@<org>/<name> for a marketplace recipe, or a path to a recipe directory / recipe.yaml inside the repo'
     required: true
+  recipes-source:
+    description: 'Host path to a directory containing <org>/<name>/recipe.yaml. Required when `recipe` starts with `@`. Bind-mounted at /pipekit/recipes inside the container. (URL-based fetch is planned for v0.2.)'
+    required: false
+    default: ''
   task:
     description: 'JSON inputs for the recipe (default "{}")'
     required: false
@@ -71,6 +75,7 @@ runs:
       shell: bash
       env:
         PIPEKIT_RECIPE: ${{ inputs.recipe }}
+        PIPEKIT_RECIPES_SOURCE: ${{ inputs.recipes-source }}
         PIPEKIT_INPUTS: ${{ inputs.task }}
         PIPEKIT_PASS_WHEN: ${{ inputs.pass-when }}
         PIPEKIT_AGENT: ${{ inputs.agent }}
@@ -87,12 +92,27 @@ runs:
           exit 2
         fi
 
+        # When the recipe is namespaced (@<org>/<name>), recipes-source must be provided.
+        RECIPES_MOUNT=()
+        if [[ "$PIPEKIT_RECIPE" == @*/* ]]; then
+          if [[ -z "${PIPEKIT_RECIPES_SOURCE:-}" ]]; then
+            echo "::error::recipe '$PIPEKIT_RECIPE' is namespaced; you must set 'recipes-source' to a directory containing <org>/<name>/recipe.yaml. Typically this is a checkout of pipekit/pipekit-recipes."
+            exit 2
+          fi
+          if [[ ! -d "$PIPEKIT_RECIPES_SOURCE" ]]; then
+            echo "::error::recipes-source '$PIPEKIT_RECIPES_SOURCE' is not a directory"
+            exit 2
+          fi
+          RECIPES_MOUNT=(-v "$PIPEKIT_RECIPES_SOURCE:/pipekit/recipes:ro")
+        fi
+
         mkdir -p "$PIPEKIT_WORKSPACE_HOST"
 
         docker pull --quiet "$PIPEKIT_IMAGE"
 
         set +e
         docker run --rm \
+          "${RECIPES_MOUNT[@]}" \
           -v "${{ github.workspace }}:/repo" \
           -v "$PIPEKIT_WORKSPACE_HOST:/work" \
           -e PIPEKIT_RECIPE \

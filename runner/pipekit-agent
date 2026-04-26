@@ -26,10 +26,21 @@ WORKSPACE="${PIPEKIT_WORKSPACE:-/work}"
 mkdir -p "$WORKSPACE/artifacts"
 
 # ─── Resolve recipe path ───────────────────────────────────────────────────
+# Recipes are namespaced by publisher: @<org>/<name> resolves under
+# $PIPEKIT_RECIPES_DIR (default /pipekit/recipes). The image does NOT bake any
+# recipes — they're expected to be bind-mounted from a clone of a recipes repo
+# (e.g. altack/pipekit-recipes), or in v0.2+ fetched on-demand via
+# PIPEKIT_RECIPES_REGISTRY (a URL pattern; not yet implemented).
+RECIPES_DIR="${PIPEKIT_RECIPES_DIR:-/pipekit/recipes}"
 case "$PIPEKIT_RECIPE" in
-  @pipekit/*)
-    NAME="${PIPEKIT_RECIPE#@pipekit/}"
-    RECIPE_PATH="/pipekit/recipes/$NAME/recipe.yaml"
+  @*/*)
+    RECIPE_PATH="$RECIPES_DIR/${PIPEKIT_RECIPE#@}/recipe.yaml"
+    if [[ ! -r "$RECIPE_PATH" ]]; then
+      fail "recipe '${PIPEKIT_RECIPE}' not found at ${RECIPE_PATH}.
+       Mount your recipes repo at ${RECIPES_DIR} (e.g. -v ./recipes:${RECIPES_DIR}:ro)
+       or set PIPEKIT_RECIPES_DIR to point elsewhere.
+       (URL-based fetch is planned for v0.2.)"
+    fi
     ;;
   *)
     if [[ -d "$PIPEKIT_RECIPE" ]]; then

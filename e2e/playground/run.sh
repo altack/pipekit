@@ -65,6 +65,7 @@ log "stream the run via:  tail -f $OUT/agent.jsonl"
 
 set +e
 docker run --rm \
+  -v "$REPO_ROOT/recipes:/pipekit/recipes:ro" \
   -v "$PLAYGROUND:/repo" \
   -v "$OUT:/work" \
   -e PIPEKIT_RECIPE='@pipekit/dep-migration-check' \
