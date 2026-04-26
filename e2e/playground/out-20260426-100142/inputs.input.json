@@ -1,0 +1,86 @@
+{
+  "boot": {
+    "install": "npm install",
+    "build": "npm run build",
+    "dev": "npm run start",
+    "ready": {
+      "url": "http://127.0.0.1:4200",
+      "status": 200,
+      "timeout-seconds": 180
+    }
+  },
+  "packages": [
+    {
+      "install": "@angular/material@latest",
+      "changelog_url": "https://raw.githubusercontent.com/angular/components/refs/heads/main/CHANGELOG.md"
+    },
+    "@angular/cdk@latest",
+    "@angular/animations@latest",
+    "@angular/common@latest",
+    "@angular/compiler@latest",
+    "@angular/core@latest",
+    "@angular/forms@latest",
+    "@angular/material@latest",
+    "@angular/platform-browser@latest",
+    "@angular/router@latest",
+    "@angular/build@latest",
+    "@angular/cli@latest",
+    "@angular/compiler-cli@latest"
+  ],
+  "auth": {
+    "login-flow": {
+      "url": "/login",
+      "username-env": "AUTOTEST_USER",
+      "password-env": "AUTOTEST_PASSWORD",
+      "success-selector": "[data-test=shell-toolbar]"
+    }
+  },
+  "routes": [
+    {
+      "path": "/contacts",
+      "goal": "Contact list renders inside the app shell. Search input is focusable and filters the list by name. Clicking a row navigates to the contact's detail page without errors."
+    },
+    {
+      "path": "/contact/1",
+      "goal": "Ada Lovelace's detail card shows her name, emails, phones, and notes. Back button returns to /contacts."
+    },
+    {
+      "path": "/contact/999",
+      "goal": "Unknown id shows the 'Contact not found' card with a working back button. No console errors."
+    },
+    {
+      "path": "/profile",
+      "goal": "Profile form renders with current values populated. Toggling the public/private slider updates the status chip in the same view. Save button is disabled until the form becomes dirty."
+    }
+  ],
+  "flows": [
+    {
+      "id": "make-profile-public",
+      "goal": "Starting on /profile, ensure the visibility toggle is currently in the Private state.\nClick the toggle. Verify the status chip now reads 'Profile is Public'.\nClick Save changes. Verify a confirmation snackbar appears.\nReload /profile and verify the toggle remains in the Public state.\n"
+    }
+  ],
+  "redact": {
+    "selectors": [
+      "[data-test=shell-user]"
+    ],
+    "text": [
+      "/demo@autotest\\.com/"
+    ]
+  },
+  "ignore": {
+    "selectors": [
+      "[data-test=shell-user]"
+    ]
+  },
+  "exploration": {
+    "max_depth": 2,
+    "max_clicks_per_route": 10,
+    "max_seconds_per_route": 90,
+    "max_seconds_per_flow": 180,
+    "max_seconds_total": 1200,
+    "stop_conditions": [
+      "log out",
+      "logout"
+    ]
+  }
+}

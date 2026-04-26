@@ -48,6 +48,7 @@ exploratory:
 | `@pipekit/hello` | Smoke test. Reads `inputs.name`, writes `Hello, <name>` to result.json. Use this to verify your CI integration works end-to-end. |
 | `@pipekit/exploratory-tests` | Drives a browser via agent-browser against a target URL, pursues a list of natural-language goals, emits findings with screenshots + console logs as evidence. |
 | `@pipekit/dep-migration-check` | Tests a dependency upgrade against the consumer app end-to-end. Boots the app, walks routes, applies the upgrade, plans + executes migrations (incl. fixes for undocumented breakage), verifies build, replays the catalog. Emits a structured report + `changes.patch` you can `git apply`. |
+| `@pipekit/playwright-from-diff` | Generates Playwright integration tests for the changed files in a PR/MR diff. Reads existing tests to match repo conventions, iterates per-failing-test (capped retries), and ships passing tests as a draft PR via `gh` or `glab`. Skip-PR mode falls back to `changes.patch`. |
 
 ## Bring your own recipe
 

@@ -51,6 +51,38 @@ exploratory:
     PIPEKIT_PASS_WHEN: '.findings | map(select(.severity == "blocker")) | length == 0'
 ```
 
+### Generate Playwright tests on demand (manual trigger)
+
+The headline pattern for `playwright-from-diff`: a manually-triggered job that
+runs after the build passes. The user clicks a button in the GitLab UI; the
+recipe writes tests, iterates them, and opens a draft MR.
+
+```yaml
+generate-playwright:
+  extends: .pipekit
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: manual
+      allow_failure: true        # skipping doesn't fail the pipeline
+  needs: [build]                  # only available once build succeeds
+  variables:
+    PIPEKIT_RECIPE: '@pipekit/playwright-from-diff'
+    PIPEKIT_INPUTS: |
+      {
+        "base_ref": "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME",
+        "head_ref": "$CI_COMMIT_SHA",
+        "test_dir": "tests/e2e",
+        "max_iterations": 3,
+        "pr": { "host": "gitlab", "target_branch": "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME", "draft": true }
+      }
+    GL_TOKEN: $PIPEKIT_GL_TOKEN   # PAT with api + write_repository scopes
+```
+
+The job sits idle in the pipeline UI as a play-button until someone clicks it.
+On click: pipekit runs the recipe, opens a draft MR off your current branch,
+and the job ends. `PIPEKIT_GL_TOKEN` is a project- or group-level CI/CD
+variable holding a PAT (or project access token) with `api` + `write_repository`.
+
 ### Multi-step DAG
 
 ```yaml
