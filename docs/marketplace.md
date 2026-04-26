@@ -158,7 +158,7 @@ Per-recipe page must include copy-paste blocks:
 
 ```yaml
 # GitHub Action
-- uses: altack/pipekit-action@main
+- uses: altack/pipekit/action@main
   with:
     recipe: '@pipekit/hello'
     inputs: |

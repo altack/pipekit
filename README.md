@@ -41,7 +41,7 @@ jobs:
         with:
           repository: altack/pipekit-recipes      # the marketplace
           path: .pipekit-recipes
-      - uses: altack/pipekit-action@main
+      - uses: altack/pipekit/action@main
         with:
           recipe: '@pipekit/exploratory-tests'      # SELECT a recipe
           recipes-source: ./.pipekit-recipes
@@ -96,7 +96,7 @@ Curated under `@pipekit/*` in the [recipes repo](https://github.com/altack/pipek
 Drop a recipe directory in your repo and pass its path:
 
 ```yaml
-- uses: altack/pipekit-action@main
+- uses: altack/pipekit/action@main
   with:
     recipe: ./.pipekit/recipes/my-task   # local path; no @<org>/ namespace needed
     inputs: '{"hello":"world"}'
