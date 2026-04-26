@@ -76,7 +76,7 @@ COPY --chown=node:node runner/lib/          /pipekit/lib/
 COPY --chown=node:node runner/recipes/      /pipekit/recipes/
 COPY --chown=node:node runner/drivers/      /pipekit/drivers/
 RUN chmod +x /usr/local/bin/pipekit-agent \
-  && find /pipekit/drivers /pipekit/lib -name '*.sh' -exec chmod +x {} +
+  && find /pipekit/drivers /pipekit/lib /pipekit/recipes -name '*.sh' -exec chmod +x {} +
 
 # ─── Bake the agent-browser skill (must run as node so it lands in node's home) ─
 USER node

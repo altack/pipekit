@@ -156,6 +156,7 @@ chown -R node:node "$WORKSPACE"
 
 export PIPEKIT_WORKSPACE="$WORKSPACE"
 export PIPEKIT_AGENT="$PICK"
+export PIPEKIT_RECIPE_DIR="$RECIPE_DIR"
 export HOME=/home/node
 
 log "demoting to node; driver=$PICK model=${PIPEKIT_MODEL:-<driver default>}"
