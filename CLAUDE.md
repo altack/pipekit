@@ -131,6 +131,7 @@ Both shells delegate exclusively to `pipekit-agent`. They contain zero agent log
 - `docs/recipe.spec.md` — what recipe authors write.
 - `docs/result.spec.md` — what recipes write back.
 - `docs/contract.md` — runtime API of the runner image.
+- `docs/ideas.md` — deferred ideas (LLM-driven viewer generator, recipe versioning, stdlib, image variants). Read before suggesting "what about X" — the answer might already be there.
 - `runner/pipekit-agent` — Phase 1 implementation.
 - `runner/lib/run-recipe.sh` — Phase 2 implementation.
 - `recipes/pipekit/hello/` — smallest possible example recipe.
