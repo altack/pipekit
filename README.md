@@ -2,9 +2,9 @@
 
 Self-hosted Managed Agents for your CI.
 
-Pipekit runs a Claude Code agent inside an isolated docker container on your CI runner. You give it a prompt + JSON inputs; it gives you a structured `result.json` + an artifacts directory. The CI job passes or fails based on the result.
+Pipekit runs an agentic CLI (Claude Code, Codex, Copilot, …) inside an isolated docker container on your CI runner. You give it a **recipe** — a self-contained spec that declares its setup, requirements, agent preferences, inputs schema, and prompt. It hands back a structured `result.json` + an artifacts directory. The CI job passes or fails based on the result.
 
-Same shape as [Anthropic's Managed Agents](https://www.anthropic.com/engineering/managed-agents), except the sandbox runs in *your* GitHub/GitLab runner so secrets, code, and artifacts never leave your org.
+Same shape as [Anthropic's Managed Agents](https://www.anthropic.com/engineering/managed-agents), except the sandbox runs in *your* GitHub/GitLab runner — secrets, code, and artifacts never leave your org. The image is a generic isolated environment; recipes own their own dependencies.
 
 ## Quick start — GitHub Actions
 
@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: altack/pipekit-action@v1
         with:
-          prompt: '@pipekit/exploratory-tests'
+          recipe: '@pipekit/exploratory-tests'
           task: |
             { "target": "https://staging.example.com",
               "goals": ["Sign-up flow completes", "No console errors on /home"] }
@@ -35,39 +35,48 @@ include:
 exploratory:
   extends: .pipekit
   variables:
-    PIPEKIT_PROMPT: '@pipekit/exploratory-tests'
+    PIPEKIT_RECIPE: '@pipekit/exploratory-tests'
     PIPEKIT_INPUTS: '{"target":"https://staging.example.com","goals":["..."]}'
     PIPEKIT_PASS_WHEN: '.findings | map(select(.severity == "blocker")) | length == 0'
   # ANTHROPIC_API_KEY set as a masked CI/CD variable at the project level
 ```
 
-## Built-in prompts
+## Built-in recipes
 
 | Name | What it does |
 | --- | --- |
 | `@pipekit/hello` | Smoke test. Reads `inputs.name`, writes `Hello, <name>` to result.json. Use this to verify your CI integration works end-to-end. |
 | `@pipekit/exploratory-tests` | Drives a browser via agent-browser against a target URL, pursues a list of natural-language goals, emits findings with screenshots + console logs as evidence. |
 
-## Bring your own prompt
+## Bring your own recipe
 
-Drop a markdown file in your repo and pass its path:
+Drop a recipe directory in your repo and pass its path:
 
 ```yaml
 - uses: altack/pipekit-action@v1
   with:
-    prompt: ./.pipekit/prompts/my-task.md
+    recipe: ./.pipekit/recipes/my-task
     task: '{"hello":"world"}'
 ```
 
-Your prompt must obey the contract in [`docs/contract.md`](./docs/contract.md): read `inputs.json`, write `result.json`, optionally drop evidence in `artifacts/`.
+Your `recipe.yaml` declares its setup, requirements, agent preferences, and prompt. See [`docs/recipe.spec.md`](./docs/recipe.spec.md).
+
+## Multi-agent
+
+Pipekit isn't tied to one model or vendor. Drivers ship for `claude-code` (default), with `codex` and `copilot` stubs ready for fill-in. Recipes declare a preferred fallback list; the runner picks the first one whose credentials are present at runtime.
 
 ## Repo layout
 
 ```
-runner/        the docker image — Dockerfile, pipekit-agent entrypoint, baked-in prompts
+runner/        the docker image
+  Dockerfile     base environment + always-on tools (gh, glab, chromium, jq, …)
+  pipekit-agent  Phase 1 entrypoint (root): parse recipe, run setup, validate, demote
+  lib/           Phase 2 helpers (node)
+  recipes/       built-in recipes (hello, exploratory-tests)
+  drivers/       agent drivers (claude-code, codex, copilot)
 action/        the GitHub Action
 gitlab/        the GitLab CI include
-docs/          the input/output contract spec
+docs/          recipe.spec.md + contract.md
 e2e/           local end-to-end smoke test
 ```
 
@@ -78,4 +87,4 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ./e2e/smoke.sh
 ```
 
-Builds the runner image locally, runs the `@pipekit/hello` prompt against it, asserts `result.json.status == "pass"`. See [`e2e/README.md`](./e2e/README.md) for details.
+Builds the runner image locally, runs six cases that exercise the contract end-to-end (happy path, request-fail, pass-when override, agent resolution paths, setup.shell). See [`e2e/README.md`](./e2e/README.md).

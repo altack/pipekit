@@ -1,0 +1,19 @@
+name: setup-marker
+version: 0.1.0
+description: e2e test — verifies setup.shell ran before the agent and is visible at runtime.
+prompt: ./prompt.md
+
+setup:
+  shell: |
+    set -e
+    echo "marker-from-setup" > /tmp/pipekit-marker
+    chmod 644 /tmp/pipekit-marker
+  timeout: 10
+
+requires:
+  env: [ANTHROPIC_API_KEY]
+
+agents:
+  preferred: [claude-code]
+  models:
+    claude-code: opus

@@ -16,12 +16,14 @@ include:
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `PIPEKIT_PROMPT` | yes | — | Built-in or path inside the repo. |
+| `PIPEKIT_RECIPE` | yes | — | Built-in (`@pipekit/<name>`) or path inside the repo to a recipe directory / `recipe.yaml`. |
 | `PIPEKIT_INPUTS` | no | `{}` | JSON blob of inputs. |
 | `PIPEKIT_PASS_WHEN` | no | — | jq expression evaluated against `result.json`. |
-| `PIPEKIT_MODEL` | no | `opus` | Claude model. |
+| `PIPEKIT_AGENT` | no | — | Explicit driver (`claude-code` \| `codex` \| `copilot`). |
+| `PIPEKIT_PREFERRED` | no | recipe-declared | Comma-separated fallback. |
+| `PIPEKIT_MODEL` | no | recipe-declared | Model id; overrides recipe default. |
 | `PIPEKIT_MAX_TURNS` | no | `200` | Safety cap. |
-| `ANTHROPIC_API_KEY` | yes | — | CI/CD variable. |
+| `<credentials>` | yes (one of) | — | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GH_TOKEN`. |
 
 ## Examples
 
@@ -34,7 +36,7 @@ include:
 smoke:
   extends: .pipekit
   variables:
-    PIPEKIT_PROMPT: '@pipekit/hello'
+    PIPEKIT_RECIPE: '@pipekit/hello'
     PIPEKIT_INPUTS: '{"name":"CI"}'
 ```
 
@@ -44,7 +46,7 @@ smoke:
 exploratory:
   extends: .pipekit
   variables:
-    PIPEKIT_PROMPT: '@pipekit/exploratory-tests'
+    PIPEKIT_RECIPE: '@pipekit/exploratory-tests'
     PIPEKIT_INPUTS: '{"target":"https://staging.example.com","goals":["Sign-up works","No console errors"]}'
     PIPEKIT_PASS_WHEN: '.findings | map(select(.severity == "blocker")) | length == 0'
 ```
@@ -54,13 +56,13 @@ exploratory:
 ```yaml
 smoke:
   extends: .pipekit
-  variables: { PIPEKIT_PROMPT: '@pipekit/hello' }
+  variables: { PIPEKIT_RECIPE: '@pipekit/hello' }
 
 exploratory:
   extends: .pipekit
   needs: [smoke]
   variables:
-    PIPEKIT_PROMPT: '@pipekit/exploratory-tests'
+    PIPEKIT_RECIPE: '@pipekit/exploratory-tests'
     PIPEKIT_INPUTS: '{...}'
 ```
 

@@ -6,11 +6,11 @@ branding:
   color: 'purple'
 
 inputs:
-  prompt:
-    description: 'Built-in (@pipekit/<name>) or path to a prompt .md file inside the repo'
+  recipe:
+    description: 'Built-in (@pipekit/<name>) or path to a recipe directory / recipe.yaml inside the repo'
     required: true
   task:
-    description: 'JSON inputs for the prompt (default "{}")'
+    description: 'JSON inputs for the recipe (default "{}")'
     required: false
     default: '{}'
   pass-when:
@@ -22,9 +22,9 @@ inputs:
     required: false
     default: ''
   preferred:
-    description: 'Comma-separated ordered fallback list of drivers. First with credentials present wins.'
+    description: 'Comma-separated ordered fallback list of drivers. Overrides the recipe-declared default. First with credentials present wins.'
     required: false
-    default: 'claude-code'
+    default: ''
   image:
     description: 'Pipekit runner image to pull and run'
     required: false
@@ -34,9 +34,9 @@ inputs:
     required: false
     default: '${{ github.workspace }}/.pipekit'
   model:
-    description: 'Claude model (opus | sonnet | haiku, or a full model id)'
+    description: 'Model id (overrides the recipe-declared default)'
     required: false
-    default: 'opus'
+    default: ''
   max-turns:
     description: 'Safety cap on agent turns'
     required: false
@@ -70,7 +70,7 @@ runs:
     - id: run
       shell: bash
       env:
-        PIPEKIT_PROMPT: ${{ inputs.prompt }}
+        PIPEKIT_RECIPE: ${{ inputs.recipe }}
         PIPEKIT_INPUTS: ${{ inputs.task }}
         PIPEKIT_PASS_WHEN: ${{ inputs.pass-when }}
         PIPEKIT_AGENT: ${{ inputs.agent }}
@@ -95,7 +95,7 @@ runs:
         docker run --rm \
           -v "${{ github.workspace }}:/repo" \
           -v "$PIPEKIT_WORKSPACE_HOST:/work" \
-          -e PIPEKIT_PROMPT \
+          -e PIPEKIT_RECIPE \
           -e PIPEKIT_INPUTS \
           -e PIPEKIT_PASS_WHEN \
           -e PIPEKIT_AGENT \
@@ -132,7 +132,7 @@ runs:
           echo ""
           echo "**Summary:** $SUMMARY"
           echo ""
-          echo "**Prompt:** \`$PIPEKIT_PROMPT\`"
+          echo "**Recipe:** \`$PIPEKIT_RECIPE\`"
         } >> "$GITHUB_STEP_SUMMARY"
 
         exit $EXIT

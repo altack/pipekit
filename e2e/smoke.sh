@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # pipekit end-to-end smoke test.
 #
-# Builds the runner image locally and runs the @pipekit/hello prompt against it,
-# asserting the contract holds: result.json is produced, status is "pass" on the
-# happy path and "fail" on the request-fail path, exit codes match the contract.
+# Builds the runner image locally and exercises the recipe contract end-to-end.
+# Each case validates a different code path; the first three do real LLM calls
+# (against @pipekit/hello), case 4 exercises agent resolution without any LLM
+# spend, and case 5 verifies the recipe-supplied agent-preferred fallback works.
+# Case 6 verifies setup.shell runs before the agent and is visible at runtime.
 #
 # Requires:
 #   - docker (or podman aliased to docker)
@@ -46,23 +48,19 @@ log "case 1: happy path (expect status=pass, exit 0)"
 set +e
 docker run --rm \
   -v "$WORK_PASS:/work" \
-  -e PIPEKIT_PROMPT='@pipekit/hello' \
+  -e PIPEKIT_RECIPE='@pipekit/hello' \
   -e PIPEKIT_INPUTS='{"name":"smoke"}' \
   -e ANTHROPIC_API_KEY \
   "$IMAGE"
 EXIT1=$?
 set -e
 
-[[ -f "$WORK_PASS/result.json" ]] \
-  || fail "case 1: result.json was not produced"
-[[ $EXIT1 -eq 0 ]] \
-  || fail "case 1: expected exit 0, got $EXIT1"
+[[ -f "$WORK_PASS/result.json" ]] || fail "case 1: result.json was not produced"
+[[ $EXIT1 -eq 0 ]] || fail "case 1: expected exit 0, got $EXIT1"
 STATUS1=$(jq -r '.status'  "$WORK_PASS/result.json")
 SUMMARY1=$(jq -r '.summary' "$WORK_PASS/result.json")
-[[ "$STATUS1" == "pass" ]] \
-  || fail "case 1: expected status=pass, got '$STATUS1'"
-echo "$SUMMARY1" | grep -qi "smoke" \
-  || fail "case 1: expected summary to mention 'smoke', got '$SUMMARY1'"
+[[ "$STATUS1" == "pass" ]] || fail "case 1: expected status=pass, got '$STATUS1'"
+echo "$SUMMARY1" | grep -qi "smoke" || fail "case 1: expected summary to mention 'smoke', got '$SUMMARY1'"
 log "case 1 OK: $SUMMARY1"
 
 # ─── Case 2: request-fail path ──────────────────────────────────────────
@@ -73,20 +71,17 @@ log "case 2: request-fail (expect status=fail, exit 1)"
 set +e
 docker run --rm \
   -v "$WORK_FAIL:/work" \
-  -e PIPEKIT_PROMPT='@pipekit/hello' \
+  -e PIPEKIT_RECIPE='@pipekit/hello' \
   -e PIPEKIT_INPUTS='{"fail":true}' \
   -e ANTHROPIC_API_KEY \
   "$IMAGE"
 EXIT2=$?
 set -e
 
-[[ -f "$WORK_FAIL/result.json" ]] \
-  || fail "case 2: result.json was not produced"
-[[ $EXIT2 -eq 1 ]] \
-  || fail "case 2: expected exit 1, got $EXIT2"
+[[ -f "$WORK_FAIL/result.json" ]] || fail "case 2: result.json was not produced"
+[[ $EXIT2 -eq 1 ]] || fail "case 2: expected exit 1, got $EXIT2"
 STATUS2=$(jq -r '.status' "$WORK_FAIL/result.json")
-[[ "$STATUS2" == "fail" ]] \
-  || fail "case 2: expected status=fail, got '$STATUS2'"
+[[ "$STATUS2" == "fail" ]] || fail "case 2: expected status=fail, got '$STATUS2'"
 log "case 2 OK"
 
 # ─── Case 3: pass-when override ─────────────────────────────────────────
@@ -97,7 +92,7 @@ log "case 3: pass-when inverts the verdict (expect exit 1 even though status=pas
 set +e
 docker run --rm \
   -v "$WORK_PW:/work" \
-  -e PIPEKIT_PROMPT='@pipekit/hello' \
+  -e PIPEKIT_RECIPE='@pipekit/hello' \
   -e PIPEKIT_INPUTS='{"name":"smoke"}' \
   -e PIPEKIT_PASS_WHEN='.status == "fail"' \
   -e ANTHROPIC_API_KEY \
@@ -105,8 +100,7 @@ docker run --rm \
 EXIT3=$?
 set -e
 
-[[ $EXIT3 -eq 1 ]] \
-  || fail "case 3: expected exit 1 (pass-when falsy), got $EXIT3"
+[[ $EXIT3 -eq 1 ]] || fail "case 3: expected exit 1 (pass-when falsy), got $EXIT3"
 log "case 3 OK"
 
 # ─── Case 4: explicit codex (stub) → exit 2, no LLM call ───────────────
@@ -117,26 +111,25 @@ log "case 4: explicit PIPEKIT_AGENT=codex (stub) → expect exit 2 with no API s
 set +e
 docker run --rm \
   -v "$WORK_CODEX:/work" \
-  -e PIPEKIT_PROMPT='@pipekit/hello' \
+  -e PIPEKIT_RECIPE='@pipekit/hello' \
   -e PIPEKIT_AGENT='codex' \
   -e ANTHROPIC_API_KEY \
   "$IMAGE"
 EXIT4=$?
 set -e
 
-[[ $EXIT4 -eq 2 ]] \
-  || fail "case 4: expected exit 2 (codex stub unavailable), got $EXIT4"
+[[ $EXIT4 -eq 2 ]] || fail "case 4: expected exit 2 (codex stub unavailable), got $EXIT4"
 log "case 4 OK"
 
 # ─── Case 5: preferred fallback (codex,copilot,claude-code) → uses claude-code ──
 WORK_FB="$WORK_BASE/fallback"
 mkdir -p "$WORK_FB"
-log "case 5: PIPEKIT_PREFERRED=codex,copilot,claude-code → falls back to claude-code, expect pass"
+log "case 5: PIPEKIT_PREFERRED=codex,copilot,claude-code → falls back to claude-code"
 
 set +e
 docker run --rm \
   -v "$WORK_FB:/work" \
-  -e PIPEKIT_PROMPT='@pipekit/hello' \
+  -e PIPEKIT_RECIPE='@pipekit/hello' \
   -e PIPEKIT_INPUTS='{"name":"fallback"}' \
   -e PIPEKIT_PREFERRED='codex,copilot,claude-code' \
   -e ANTHROPIC_API_KEY \
@@ -144,13 +137,34 @@ docker run --rm \
 EXIT5=$?
 set -e
 
-[[ -f "$WORK_FB/result.json" ]] \
-  || fail "case 5: result.json was not produced"
-[[ $EXIT5 -eq 0 ]] \
-  || fail "case 5: expected exit 0 (fallback to claude-code), got $EXIT5"
+[[ -f "$WORK_FB/result.json" ]] || fail "case 5: result.json was not produced"
+[[ $EXIT5 -eq 0 ]] || fail "case 5: expected exit 0, got $EXIT5"
 STATUS5=$(jq -r '.status' "$WORK_FB/result.json")
-[[ "$STATUS5" == "pass" ]] \
-  || fail "case 5: expected status=pass, got '$STATUS5'"
+[[ "$STATUS5" == "pass" ]] || fail "case 5: expected status=pass, got '$STATUS5'"
 log "case 5 OK"
+
+# ─── Case 6: setup.shell runs before agent and is visible to it ────────
+WORK_SETUP="$WORK_BASE/setup"
+mkdir -p "$WORK_SETUP"
+log "case 6: custom recipe with setup.shell → marker file readable by agent"
+
+set +e
+docker run --rm \
+  -v "$WORK_SETUP:/work" \
+  -v "$REPO_ROOT/e2e/recipes/setup-marker:/recipes/setup-marker:ro" \
+  -e PIPEKIT_RECIPE='/recipes/setup-marker' \
+  -e ANTHROPIC_API_KEY \
+  "$IMAGE"
+EXIT6=$?
+set -e
+
+[[ -f "$WORK_SETUP/result.json" ]] || fail "case 6: result.json was not produced"
+[[ $EXIT6 -eq 0 ]] || fail "case 6: expected exit 0, got $EXIT6"
+STATUS6=$(jq -r '.status' "$WORK_SETUP/result.json")
+[[ "$STATUS6" == "pass" ]] || fail "case 6: expected status=pass, got '$STATUS6'"
+MARKER=$(jq -r '.outputs.marker // ""' "$WORK_SETUP/result.json")
+[[ "$MARKER" == "marker-from-setup" ]] \
+  || fail "case 6: expected outputs.marker='marker-from-setup', got '$MARKER'"
+log "case 6 OK: setup.shell visible to agent"
 
 log "ALL CASES PASSED"

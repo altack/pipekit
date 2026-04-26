@@ -1,38 +1,58 @@
 # Pipekit contract
 
-The single contract every prompt — built-in or user-provided — must satisfy. The CI integrations (`action/`, `gitlab/`) read this and nothing else.
+Pipekit's runtime contract has two layers:
 
-## Inputs (set by the caller, read by the agent)
+- **Recipe spec** — what a recipe author writes. Declares inputs, requirements, agents, prompt. Documented in [`recipe.spec.md`](./recipe.spec.md).
+- **Container contract** — the runtime API the runner image exposes. Documented here. The CI integrations (`action/`, `gitlab/`) read this and nothing else.
+
+## Inputs (set by the caller, read by `pipekit-agent`)
 
 | Env var | Required | Default | Meaning |
 |---|---|---|---|
-| `PIPEKIT_PROMPT` | yes | — | Prompt to load. `@pipekit/<name>` resolves to `/pipekit/prompts/<name>.md` (built-in). Anything else is treated as a path inside the container. |
-| `PIPEKIT_INPUTS` | no | `{}` | JSON blob. Materialized to `$PIPEKIT_WORKSPACE/inputs.json` before the agent starts. The agent reads task-specific params from here. Must be valid JSON. |
+| `PIPEKIT_RECIPE` | yes | — | Recipe to load. `@pipekit/<name>` resolves to `/pipekit/recipes/<name>/recipe.yaml` (built-in). A path to a directory is treated as a recipe directory (`recipe.yaml` expected inside). A path to a file is treated as a `recipe.yaml` directly. |
+| `PIPEKIT_INPUTS` | no | `{}` | JSON blob. Materialized to `$PIPEKIT_WORKSPACE/inputs.json` before the agent starts. The recipe's `inputs.schema` (if declared) is the source of truth for what's expected. Must be valid JSON. |
 | `PIPEKIT_PASS_WHEN` | no | — | jq expression evaluated against `result.json` at the end of the run. Truthy → exit 0, falsy → exit 1. If unset, exit code derives from `result.json:.status`. |
 | `PIPEKIT_WORKSPACE` | no | `/work` | Per-task scratch directory. The CI integrations bind-mount the host's per-job temp dir here. |
 | `PIPEKIT_AGENT` | no | — | Explicit driver name (`claude-code`, `codex`, `copilot`, …). Bypasses preference resolution. If the named driver is unavailable, exits 2. |
-| `PIPEKIT_PREFERRED` | no | `claude-code` | Comma-separated ordered fallback list. Walks left-to-right and picks the first driver whose `check.sh` passes (CLI installed + credentials present). |
-| `PIPEKIT_MODEL` | no | driver default | Agent-specific model id. Each driver decides its default. |
+| `PIPEKIT_PREFERRED` | no | recipe-declared | Comma-separated ordered fallback list. Overrides the recipe's `agents.preferred`. Walks left-to-right, picks the first driver whose `check.sh` passes. |
+| `PIPEKIT_MODEL` | no | recipe-declared | Model id. Overrides `agents.models[<picked>]` from the recipe. |
 | `PIPEKIT_MAX_TURNS` | no | `200` | Safety cap on agent turns. |
-| `<agent credentials>` | yes (one of) | — | Whichever credentials the chosen driver requires: `ANTHROPIC_API_KEY` (claude-code), `OPENAI_API_KEY` (codex), `GH_TOKEN` (copilot). Read at process start; never written to disk. |
+| `<agent credentials>` | yes (one of) | — | Whichever credentials the chosen driver requires: `ANTHROPIC_API_KEY` (claude-code), `OPENAI_API_KEY` (codex), `GH_TOKEN` (copilot). |
 
-## Agent resolution
+## Two-phase execution
 
-```
-if PIPEKIT_AGENT is set:
-    run /pipekit/drivers/$PIPEKIT_AGENT/check.sh
-    if check fails → exit 2 ("agent X is not available")
-    else use $PIPEKIT_AGENT
-else:
-    for each name in PIPEKIT_PREFERRED.split(","):
-        if /pipekit/drivers/$name/check.sh succeeds → use $name, stop
-    if none matched → exit 2 ("no preferred agent available")
-```
+### Phase 1 — root
+
+`pipekit-agent` runs as `root` until handoff. It:
+
+1. Resolves `PIPEKIT_RECIPE` to a `recipe.yaml`.
+2. Parses the recipe.
+3. Materializes `inputs.json` from `PIPEKIT_INPUTS` (validates as JSON).
+4. Runs `recipe.setup.shell` under `timeout setup.timeout` if present. Non-zero exit → exit 2.
+5. Validates `recipe.requires.commands` are on `PATH` after setup.
+6. Validates `recipe.requires.env` (at least one must be set).
+7. Validates `recipe.requires.mounts` are bind-mounted directories.
+8. Resolves the agent driver: explicit `PIPEKIT_AGENT` or walk `PIPEKIT_PREFERRED || recipe.agents.preferred`.
+9. Applies `recipe.agents.models[<picked>]` as `PIPEKIT_MODEL` default if unset.
+10. `chown -R node:node` on the workspace.
+11. `exec runuser -u node` into Phase 2.
+
+### Phase 2 — node (unprivileged)
+
+`run-recipe.sh` runs as `node`. It:
+
+1. Invokes `/pipekit/drivers/<picked>/run.sh <prompt-path>`. The driver hands the prompt + task to its agent and exits with the agent's status.
+2. Validates `result.json` exists and is valid JSON.
+3. Computes the verdict (default: `result.status`; override: `PIPEKIT_PASS_WHEN`) and exits.
+
+The agent itself **never runs as root**.
+
+## Driver contract
 
 A driver is a directory `/pipekit/drivers/<name>/` containing:
 
-- `check.sh` — exits 0 if the driver is usable (CLI on PATH, credentials present), non-zero otherwise.
-- `run.sh` — receives the prompt path as `$1`, drives its agent's loop. Reads `PIPEKIT_INPUTS`, `PIPEKIT_WORKSPACE`, `PIPEKIT_MODEL`, `PIPEKIT_MAX_TURNS` from env. The driver does **not** write `result.json` — the prompt instructs the agent to. Exit code is bubbled up.
+- `check.sh` — exits 0 if the driver is usable (CLI on PATH, credentials present), non-zero otherwise. Run during agent resolution.
+- `run.sh` — receives the prompt path as `$1`. Drives its agent's loop. Reads `PIPEKIT_INPUTS`, `PIPEKIT_WORKSPACE`, `PIPEKIT_MODEL`, `PIPEKIT_MAX_TURNS` from env. The driver does **not** write `result.json` — the prompt instructs the agent to. Exit code is bubbled up.
 
 Built-in drivers in v0.x: `claude-code` (real), `codex` (stub), `copilot` (stub).
 
@@ -43,11 +63,12 @@ Everything lives under `$PIPEKIT_WORKSPACE`:
 | Path | Producer | Required | Purpose |
 |---|---|---|---|
 | `inputs.json` | `pipekit-agent` (pre-flight) | yes | Mirror of `PIPEKIT_INPUTS`. Agent reads this. |
-| `result.json` | the prompt | yes | The verdict. Schema below. |
-| `agent.jsonl` | `pipekit-agent` (during run) | yes | Raw stream-json from `claude` for debugging. |
+| `recipe.yaml` | `pipekit-agent` (pre-flight) | yes | Copy of the resolved recipe, for debugging. |
+| `result.json` | the prompt (via the agent) | yes | The verdict. Schema below. |
+| `agent.jsonl` | the driver | yes | Raw agent output (driver-specific format). |
 | `artifacts/**` | the prompt | no | Evidence files (screenshots, logs, patches, snapshots). Referenced from `result.json` by relative path. |
 
-CI integrations upload **the entire workspace directory** as a job artifact. No separate "artifacts only" path; everything-or-nothing.
+CI integrations upload **the entire workspace directory** as a job artifact. Everything-or-nothing.
 
 ## `result.json` schema
 
@@ -69,27 +90,30 @@ CI integrations upload **the entire workspace directory** as a job artifact. No 
     }
   ],
   "outputs": {
-    "<key>": "<any prompt-defined value>"
+    "<key>": "<any recipe-defined value>"
   }
 }
 ```
 
 - `status` and `summary` are **required**. Everything else is optional.
-- `findings` is for prompts that produce N observations (audits, exploratory tests). For pass/fail prompts (build, deploy), it can be `[]` or omitted.
-- `outputs` is for prompt-specific structured data the consumer wants to surface as CI step outputs (e.g. a deploy URL, a branch name, a count).
-- Evidence paths are **relative to `$PIPEKIT_WORKSPACE`**. The contract's reference frame is the workspace, not the container root.
+- `findings` is for recipes that produce N observations (audits, exploratory tests). For pass/fail recipes (build, deploy), it can be `[]` or omitted.
+- `outputs` is for recipe-specific structured data the consumer wants to surface as CI step outputs (e.g. a deploy URL, a branch name, a count).
+- Evidence paths are **relative to `$PIPEKIT_WORKSPACE`**.
 
 ## Verdict rules
 
 ```
-exit 0 (pass)  →  PIPEKIT_PASS_WHEN truthy, OR (unset and result.status == "pass")
-exit 1 (fail)  →  PIPEKIT_PASS_WHEN falsy,  OR (unset and result.status == "fail")
-exit 2 (infra) →  any of:
-                    - PIPEKIT_PROMPT not readable
-                    - PIPEKIT_INPUTS not valid JSON
-                    - claude CLI exited non-zero
-                    - result.json missing
-                    - result.json not valid JSON
+exit 0 (pass)   →  PIPEKIT_PASS_WHEN truthy, OR (unset and result.status == "pass")
+exit 1 (fail)   →  PIPEKIT_PASS_WHEN falsy,  OR (unset and result.status == "fail")
+exit 2 (infra)  →  any of:
+                     - recipe not found / unparseable
+                     - PIPEKIT_INPUTS not valid JSON
+                     - setup.shell failed or timed out
+                     - requires.* not satisfied
+                     - no agent available
+                     - driver crashed
+                     - result.json missing
+                     - result.json not valid JSON
 ```
 
 `pass_when` examples:
@@ -101,16 +125,8 @@ exit 2 (infra) →  any of:
 (.outputs.coverage // 0) >= 0.8                                # coverage gate
 ```
 
-## Authoring a prompt
+## Authoring a recipe
 
-A prompt is a single markdown file appended to Claude Code's system prompt. It should:
+See [`recipe.spec.md`](./recipe.spec.md).
 
-1. State the task in one sentence.
-2. Document the `inputs.json` schema it reads.
-3. Describe the procedure.
-4. Define the `result.json` shape it writes (must conform to the schema above).
-5. Declare constraints (timeouts, scope, what tools to use).
-
-Keep prompts to one page. If you need two pages, split into multiple prompts and chain them at the CI layer with `needs:`.
-
-See `runner/prompts/hello.md` for the smallest possible example, and `runner/prompts/exploratory-tests.md` for a real one.
+`runner/recipes/hello/` is the smallest possible example. `runner/recipes/exploratory-tests/` is a real one.

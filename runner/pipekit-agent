@@ -1,52 +1,58 @@
 #!/usr/bin/env bash
-# pipekit-agent — the contract implementation. See docs/contract.md.
+# pipekit-agent — Phase 1 (root). See docs/recipe.spec.md.
 #
-# Resolves which agent driver to run (claude-code | codex | copilot | …),
-# materializes inputs.json, hands prompt + workspace to the driver, validates
-# result.json, and computes the verdict.
+# Parses recipe.yaml, runs setup.shell as root, validates requires.*, resolves
+# the agent driver, then exec's into Phase 2 as the unprivileged `node` user.
 #
 # Inputs (env):
-#   PIPEKIT_PROMPT       @pipekit/<name> or path to a .md system prompt   [required]
+#   PIPEKIT_RECIPE       @pipekit/<name> or path to recipe.yaml (or to a recipe dir)
 #   PIPEKIT_INPUTS       JSON blob (default "{}"); written to inputs.json
 #   PIPEKIT_PASS_WHEN    optional jq expression evaluated against result.json
 #   PIPEKIT_WORKSPACE    scratch dir (default /work)
-#   PIPEKIT_AGENT        explicit driver name (claude-code | codex | copilot | …)
-#                        if unset, walk PIPEKIT_PREFERRED and pick the first available
-#   PIPEKIT_PREFERRED    comma-separated ordered fallback (default "claude-code")
-#   PIPEKIT_MODEL        agent-specific model id (driver decides default)
+#   PIPEKIT_AGENT        explicit driver (claude-code | codex | copilot | …)
+#   PIPEKIT_PREFERRED    comma-separated fallback (default: recipe's agents.preferred)
+#   PIPEKIT_MODEL        model id (default: recipe's agents.models[<picked>])
 #   PIPEKIT_MAX_TURNS    safety cap (default 200)
-#   <agent creds>        whichever credentials the chosen driver needs
-#                          claude-code → ANTHROPIC_API_KEY
-#                          codex       → OPENAI_API_KEY
-#                          copilot     → GH_TOKEN / gh auth
-#
-# Outputs (under $PIPEKIT_WORKSPACE):
-#   inputs.json     mirror of $PIPEKIT_INPUTS
-#   result.json     the verdict (status, summary, findings, outputs)
-#   agent.jsonl     raw agent output (driver-specific format)
-#   artifacts/      anything the prompt produced
-#
-# Exit codes:
-#   0  pass        (status="pass" or pass_when truthy)
-#   1  agent fail  (status="fail" or pass_when falsy)
-#   2  infra fail  (no result.json, prompt missing, no driver available, etc.)
+#   <agent credentials>  ANTHROPIC_API_KEY | OPENAI_API_KEY | GH_TOKEN
 
 set -euo pipefail
 
 log()  { echo "[pipekit] $*" >&2; }
 fail() { log "ERROR: $*"; exit 2; }
 
-: "${PIPEKIT_PROMPT:?required: built-in @pipekit/<name> or path to a prompt file}"
+: "${PIPEKIT_RECIPE:?required: built-in @pipekit/<name> or path to a recipe.yaml}"
 
 WORKSPACE="${PIPEKIT_WORKSPACE:-/work}"
 mkdir -p "$WORKSPACE/artifacts"
 
-# ─── Resolve prompt ────────────────────────────────────────────────────────
-case "$PIPEKIT_PROMPT" in
-  @pipekit/*) PROMPT_PATH="/pipekit/prompts/${PIPEKIT_PROMPT#@pipekit/}.md" ;;
-  *)          PROMPT_PATH="$PIPEKIT_PROMPT" ;;
+# ─── Resolve recipe path ───────────────────────────────────────────────────
+case "$PIPEKIT_RECIPE" in
+  @pipekit/*)
+    NAME="${PIPEKIT_RECIPE#@pipekit/}"
+    RECIPE_PATH="/pipekit/recipes/$NAME/recipe.yaml"
+    ;;
+  *)
+    if [[ -d "$PIPEKIT_RECIPE" ]]; then
+      RECIPE_PATH="$PIPEKIT_RECIPE/recipe.yaml"
+    else
+      RECIPE_PATH="$PIPEKIT_RECIPE"
+    fi
+    ;;
 esac
-[[ -r "$PROMPT_PATH" ]] || fail "prompt not found or unreadable: $PROMPT_PATH"
+
+[[ -r "$RECIPE_PATH" ]] || fail "recipe not found or unreadable: $RECIPE_PATH"
+RECIPE_DIR="$(cd "$(dirname "$RECIPE_PATH")" && pwd)"
+log "recipe: $RECIPE_PATH"
+
+# ─── Parse recipe.yaml ─────────────────────────────────────────────────────
+RECIPE_NAME=$(yq -r '.name // ""' "$RECIPE_PATH")
+[[ -n "$RECIPE_NAME" ]] || fail "recipe.yaml missing required field: name"
+PROMPT_REL=$(yq -r '.prompt // ""' "$RECIPE_PATH")
+[[ -n "$PROMPT_REL" ]] || fail "recipe.yaml missing required field: prompt"
+PROMPT_PATH="$RECIPE_DIR/$PROMPT_REL"
+[[ -r "$PROMPT_PATH" ]] || fail "prompt not found: $PROMPT_PATH"
+
+log "recipe name: $RECIPE_NAME"
 log "prompt: $PROMPT_PATH"
 
 # ─── Materialize inputs.json ───────────────────────────────────────────────
@@ -55,14 +61,58 @@ INPUTS="${PIPEKIT_INPUTS-}"
 printf '%s' "$INPUTS" > "$WORKSPACE/inputs.json"
 jq empty "$WORKSPACE/inputs.json" 2>/dev/null \
   || fail "PIPEKIT_INPUTS is not valid JSON"
+
+cp "$RECIPE_PATH" "$WORKSPACE/recipe.yaml"
 log "workspace: $WORKSPACE"
+
+# ─── Run setup.shell (as root) ─────────────────────────────────────────────
+SETUP_SHELL=$(yq -r '.setup.shell // ""' "$RECIPE_PATH")
+if [[ -n "$SETUP_SHELL" ]]; then
+  SETUP_TIMEOUT=$(yq -r '.setup.timeout // 300' "$RECIPE_PATH")
+  log "running setup.shell (timeout: ${SETUP_TIMEOUT}s)"
+  TMP_SETUP="$(mktemp /tmp/pipekit-setup.XXXXXX.sh)"
+  printf '%s' "$SETUP_SHELL" > "$TMP_SETUP"
+  if ! timeout "$SETUP_TIMEOUT" bash "$TMP_SETUP"; then
+    rm -f "$TMP_SETUP"
+    fail "setup.shell failed (or exceeded timeout ${SETUP_TIMEOUT}s)"
+  fi
+  rm -f "$TMP_SETUP"
+  log "setup.shell complete"
+fi
+
+# ─── Validate requires.commands ────────────────────────────────────────────
+# Note: mikefarah yq's `[]?` returns nothing when the path is absent or not an
+# array — no need for jq's `// empty` trailer (yq's lexer chokes on `empty`).
+while IFS= read -r cmd; do
+  [[ -z "$cmd" ]] && continue
+  command -v "$cmd" >/dev/null \
+    || fail "requires.commands missing: '$cmd' is not on PATH after setup"
+done < <(yq -r '.requires.commands[]?' "$RECIPE_PATH")
+
+# ─── Validate requires.env (any-of) ────────────────────────────────────────
+ENV_LIST=()
+ENV_FOUND=0
+while IFS= read -r e; do
+  [[ -z "$e" ]] && continue
+  ENV_LIST+=("$e")
+  [[ -n "${!e:-}" ]] && ENV_FOUND=1
+done < <(yq -r '.requires.env[]?' "$RECIPE_PATH")
+if (( ${#ENV_LIST[@]} > 0 )) && (( ENV_FOUND == 0 )); then
+  fail "requires.env: at least one must be set; none found among: ${ENV_LIST[*]}"
+fi
+
+# ─── Validate requires.mounts ──────────────────────────────────────────────
+while IFS= read -r m; do
+  [[ -z "$m" ]] && continue
+  [[ -d "$m" ]] || fail "requires.mounts missing: '$m' (must be a bind-mounted directory)"
+done < <(yq -r '.requires.mounts[]?' "$RECIPE_PATH")
 
 # ─── Resolve agent driver ──────────────────────────────────────────────────
 DRIVERS_DIR="/pipekit/drivers"
-PREFERRED="${PIPEKIT_PREFERRED:-claude-code}"
+RECIPE_PREFERRED=$(yq -r '.agents.preferred // ["claude-code"] | join(",")' "$RECIPE_PATH")
+PREFERRED="${PIPEKIT_PREFERRED:-$RECIPE_PREFERRED}"
 
 agent_check() {
-  # $1 = driver name. Returns 0 if available.
   local name="$1"
   local check_sh="$DRIVERS_DIR/$name/check.sh"
   [[ -x "$check_sh" ]] || return 1
@@ -72,75 +122,42 @@ agent_check() {
 PICK=""
 if [[ -n "${PIPEKIT_AGENT:-}" ]]; then
   log "agent (explicit): $PIPEKIT_AGENT"
-  if [[ ! -d "$DRIVERS_DIR/$PIPEKIT_AGENT" ]]; then
-    fail "unknown agent: '$PIPEKIT_AGENT' (no driver at $DRIVERS_DIR/$PIPEKIT_AGENT)"
-  fi
-  if ! agent_check "$PIPEKIT_AGENT"; then
-    fail "agent '$PIPEKIT_AGENT' is not available — check.sh failed (missing CLI or credentials)"
-  fi
+  [[ -d "$DRIVERS_DIR/$PIPEKIT_AGENT" ]] \
+    || fail "unknown agent: '$PIPEKIT_AGENT' (no driver at $DRIVERS_DIR/$PIPEKIT_AGENT)"
+  agent_check "$PIPEKIT_AGENT" \
+    || fail "agent '$PIPEKIT_AGENT' not available — check.sh failed (missing CLI or credentials)"
   PICK="$PIPEKIT_AGENT"
 else
   log "agent (preferred): $PREFERRED"
   IFS=',' read -ra CANDIDATES <<< "$PREFERRED"
-  for candidate in "${CANDIDATES[@]}"; do
-    candidate="$(echo "$candidate" | xargs)"
-    [[ -z "$candidate" ]] && continue
-    if agent_check "$candidate"; then
-      PICK="$candidate"
+  for c in "${CANDIDATES[@]}"; do
+    c="$(echo "$c" | xargs)"
+    [[ -z "$c" ]] && continue
+    if agent_check "$c"; then
+      PICK="$c"
       log "agent picked: $PICK"
       break
     else
-      log "agent skipped: $candidate (unavailable)"
+      log "agent skipped: $c (unavailable)"
     fi
   done
   [[ -n "$PICK" ]] \
     || fail "no preferred agent available — set credentials for one of: $PREFERRED"
 fi
 
-DRIVER="$DRIVERS_DIR/$PICK/run.sh"
-[[ -x "$DRIVER" ]] || fail "driver not executable: $DRIVER"
+# Apply recipe's default model if PIPEKIT_MODEL not set
+if [[ -z "${PIPEKIT_MODEL:-}" ]]; then
+  RECIPE_MODEL=$(yq -r ".agents.models[\"$PICK\"] // \"\"" "$RECIPE_PATH")
+  [[ -n "$RECIPE_MODEL" ]] && export PIPEKIT_MODEL="$RECIPE_MODEL"
+fi
 
-# ─── Hand off to driver ────────────────────────────────────────────────────
+# ─── Demote to node and hand off to Phase 2 ────────────────────────────────
+chown -R node:node "$WORKSPACE"
+
 export PIPEKIT_WORKSPACE="$WORKSPACE"
 export PIPEKIT_AGENT="$PICK"
+export HOME=/home/node
 
-cd "$WORKSPACE"
-set +e
-"$DRIVER" "$PROMPT_PATH"
-DRIVER_EXIT=$?
-set -e
-
-# ─── Validate output ───────────────────────────────────────────────────────
-if [[ $DRIVER_EXIT -ne 0 ]]; then
-  log "driver $PICK exited non-zero ($DRIVER_EXIT)"
-  if [[ ! -f "$WORKSPACE/result.json" ]]; then
-    printf '{"status":"fail","summary":"driver %s exited %d without writing result.json"}' \
-      "$PICK" "$DRIVER_EXIT" > "$WORKSPACE/result.json"
-  fi
-  exit 2
-fi
-
-if [[ ! -f "$WORKSPACE/result.json" ]]; then
-  log "ERROR: agent did not write result.json"
-  echo '{"status":"fail","summary":"agent did not write result.json"}' > "$WORKSPACE/result.json"
-  exit 2
-fi
-
-jq empty "$WORKSPACE/result.json" 2>/dev/null \
-  || fail "result.json is not valid JSON"
-
-# ─── Compute verdict ───────────────────────────────────────────────────────
-if [[ -n "${PIPEKIT_PASS_WHEN:-}" ]]; then
-  log "evaluating pass-when: $PIPEKIT_PASS_WHEN"
-  if jq -e "$PIPEKIT_PASS_WHEN" "$WORKSPACE/result.json" >/dev/null 2>&1; then
-    log "verdict: pass (pass-when truthy)"
-    exit 0
-  else
-    log "verdict: fail (pass-when falsy)"
-    exit 1
-  fi
-fi
-
-STATUS=$(jq -r '.status // "fail"' "$WORKSPACE/result.json")
-log "verdict: $STATUS (from result.json:.status)"
-[[ "$STATUS" == "pass" ]] && exit 0 || exit 1
+log "demoting to node; driver=$PICK model=${PIPEKIT_MODEL:-<driver default>}"
+exec runuser --preserve-environment -u node -- \
+  /pipekit/lib/run-recipe.sh "$PROMPT_PATH"

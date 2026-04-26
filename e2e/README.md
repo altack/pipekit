@@ -1,16 +1,19 @@
 # Pipekit end-to-end tests
 
-The smoke script builds the runner image locally and exercises the contract from `docs/contract.md` end-to-end against the `@pipekit/hello` prompt.
+The smoke script builds the runner image locally and exercises the contract from [`docs/contract.md`](../docs/contract.md) end-to-end. Six cases, four code paths.
 
 ## What it asserts
 
-| Case | Inputs | Expected exit | Expected `.status` |
-|---|---|---|---|
-| 1. happy path | `{"name":"smoke"}` | 0 | `pass` |
-| 2. request-fail | `{"fail":true}` | 1 | `fail` |
-| 3. pass-when override | `{"name":"smoke"}` + `PIPEKIT_PASS_WHEN='.status == "fail"'` | 1 | `pass` (but verdict is fail) |
+| Case | Recipe | Notable | Expected exit | Expected `.status` |
+|---|---|---|---|---|
+| 1. happy path | `@pipekit/hello` | `inputs={"name":"smoke"}` | 0 | `pass` |
+| 2. request-fail | `@pipekit/hello` | `inputs={"fail":true}` | 1 | `fail` |
+| 3. pass-when override | `@pipekit/hello` | `PIPEKIT_PASS_WHEN='.status == "fail"'` | 1 | `pass` (verdict is fail) |
+| 4. explicit unavailable | `@pipekit/hello` | `PIPEKIT_AGENT=codex` (stub) | 2 | — (no LLM call) |
+| 5. preferred fallback | `@pipekit/hello` | `PIPEKIT_PREFERRED=codex,copilot,claude-code` | 0 | `pass` |
+| 6. setup.shell | `e2e/recipes/setup-marker` | recipe sets up `/tmp/pipekit-marker` as root, agent reads it | 0 | `pass` |
 
-If all three pass, the contract is wired correctly: prompt resolution, inputs marshalling, agent launch, result.json validation, and the two verdict paths (default vs. `pass_when` override) all work.
+If all six pass, the harness is wired correctly: recipe resolution, inputs marshalling, **`setup.shell` runs as root and is visible to the demoted agent**, `requires.*` validation, agent resolution (explicit + preferred fallback), driver dispatch, `result.json` validation, and both verdict paths (default vs. `pass_when` override).
 
 ## Run it
 
@@ -34,4 +37,4 @@ PIPEKIT_SKIP_BUILD=1 PIPEKIT_IMAGE=ghcr.io/altack/pipekit-runner:dev ./e2e/smoke
 
 ## Cost
 
-Three Claude invocations against `@pipekit/hello`. The prompt explicitly caps work at <5 turns and tells the agent to use only Bash + Write — should land in the cents. If you see >$0.50 for a smoke run, something's wrong.
+Four Claude invocations (cases 1, 2, 3, 5, 6 — case 4 makes no LLM call). Prompts cap work at <5 turns and use only Bash+Write tools — should land in the cents. If you see >$0.50 for a smoke run, something's wrong.
