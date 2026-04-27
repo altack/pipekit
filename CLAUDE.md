@@ -132,6 +132,7 @@ Both shells delegate exclusively to `pipekit-agent`. They contain zero agent log
 - `docs/result.spec.md` — what recipes write back.
 - `docs/contract.md` — runtime API of the runner image.
 - `docs/marketplace.md` — discovery design: `pipekit-recipes` repo layout, `publishers.yaml`, `index.json` schema, indexer Action, static site at `pipekit.dev`.
+- `docs/agent-integration.md` — the doc to feed an LLM agent so it can wire pipekit into a consumer's CI. Self-contained, links to live URLs.
 - `docs/ideas.md` — deferred ideas (LLM-driven viewer generator, recipe versioning, stdlib, image variants). Read before suggesting "what about X" — the answer might already be there.
 - `runner/pipekit-agent` — Phase 1 implementation.
 - `runner/lib/run-recipe.sh` — Phase 2 implementation.
